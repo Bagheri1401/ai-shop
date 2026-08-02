@@ -42,7 +42,7 @@ ADMIN_ID=os.getenv("ADMIN_TELEGRAM_ID","")
 ADMIN_USER=os.getenv("ADMIN_USERNAME","admin")
 ADMIN_PASS=os.getenv("ADMIN_PASSWORD","change-me")
 CURRENCY=os.getenv("CURRENCY","IRR")
-APP_VERSION="3.3.0"
+APP_VERSION="3.3.1"
 ADMIN_SESSION_TOKEN=secrets.token_urlsafe(36)
 
 ADMIN_OTP_TTL_SECONDS=300
@@ -1161,7 +1161,7 @@ def handle_message(msg):
         return tg_safe("sendMessage",{"chat_id":chat_id,"text":"رسید در دیتابیس ثبت شد و در انتظار بررسی است."})
 
 class Handler(BaseHTTPRequestHandler):
-    server_version="ai-shop/3.3.0"
+    server_version="ai-shop/3.3.1"
 
     def log_message(self, fmt, *args):
         print(f"{self.address_string()} - {fmt%args}")

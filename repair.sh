@@ -44,3 +44,20 @@ fi
 nginx -t
 systemctl reload nginx
 echo "اتصال داخلی و Nginx سالم هستند."
+
+
+echo "اصلاح خودکار تنظیمات Nginx..."
+DOMAIN="$(grep '^DOMAIN=' /opt/ai-shop/.env | cut -d= -f2-)"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ -f "$PROJECT_DIR/nginx/ai-shop.conf" ] && [ -n "$DOMAIN" ]; then
+  cp -a /etc/nginx/sites-available/ai-shop \
+    "/etc/nginx/sites-available/ai-shop.before-fix-$(date +%Y%m%d-%H%M%S)" 2>/dev/null || true
+  sed "s/__DOMAIN__/${DOMAIN}/g" "$PROJECT_DIR/nginx/ai-shop.conf" \
+    > /etc/nginx/sites-available/ai-shop
+  ln -sf /etc/nginx/sites-available/ai-shop /etc/nginx/sites-enabled/ai-shop
+fi
+
+nginx -t
+systemctl reload nginx
+echo "تنظیم Nginx بدون دستور تکراری فعال شد."

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-VERSION="3.3.0"
+VERSION="3.3.1"
 
 
 
@@ -101,6 +101,28 @@ mask_secret() {
     printf "********"
   else
     printf "%s********%s" "${value:0:5}" "${value: -4}"
+  fi
+}
+
+
+validate_nginx_candidate() {
+  local candidate="$1"
+  local duplicate
+  duplicate="$(awk '
+    /^[[:space:]]*(proxy_http_version|proxy_connect_timeout|proxy_send_timeout|proxy_read_timeout|proxy_next_upstream_tries)[[:space:]]/ {
+      key=$1
+      count[key]++
+    }
+    END {
+      for (key in count) {
+        if (count[key] > 1) print key
+      }
+    }
+  ' "$candidate")"
+
+  if [ -n "$duplicate" ]; then
+    fail "دستور تکراری در Nginx پیدا شد: $duplicate"
+    return 1
   fi
 }
 
@@ -205,9 +227,11 @@ DOMAIN="$(grep '^DOMAIN=' /opt/ai-shop/.env | cut -d= -f2-)"
   false
 }
 
-sed "s/__DOMAIN__/${DOMAIN}/g" "$TMP_DIR/source/nginx/ai-shop.conf" > /etc/nginx/sites-available/ai-shop
-ln -sf /etc/nginx/sites-available/ai-shop /etc/nginx/sites-enabled/ai-shop
-nginx -t
+NGINX_CANDIDATE="$TMP_DIR/ai-shop.nginx.candidate"
+sed "s/__DOMAIN__/${DOMAIN}/g" "$TMP_DIR/source/nginx/ai-shop.conf" > "$NGINX_CANDIDATE"
+validate_nginx_candidate "$NGINX_CANDIDATE"
+ok "قالب Nginx بدون دستور تکراری است."
+
 systemctl daemon-reload
 systemctl restart ai-shop
 
@@ -226,6 +250,8 @@ if [ "$APP_READY" -ne 1 ]; then
   false
 fi
 
+cp "$NGINX_CANDIDATE" /etc/nginx/sites-available/ai-shop
+ln -sf /etc/nginx/sites-available/ai-shop /etc/nginx/sites-enabled/ai-shop
 nginx -t
 systemctl reload nginx
 ok "نسخه جدید اجرا شد."

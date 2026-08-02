@@ -1,4 +1,4 @@
-# 🛍️ ai-shop Professional Edition v3.3.0
+# 🛍️ ai-shop Professional Edition v3.3.1
 
 <p align="center">
   <strong>Telegram AI Commerce Platform</strong><br>
@@ -7,7 +7,7 @@
 
 ---
 
-## ✨ تغییرات نسخه 3.3.0
+## ✨ تغییرات نسخه 3.3.1
 
 - نصب‌کننده فارسی با چیدمان تمیزتر و خروجی مرحله‌ای
 - نوار پیشرفت نصب
@@ -104,7 +104,7 @@ echo
 خروجی:
 
 ```json
-{"name":"ai-shop","version":"3.3.0"}
+{"name":"ai-shop","version":"3.3.1"}
 ```
 
 ---
@@ -178,7 +178,7 @@ sudo bash uninstall.sh
 ---
 
 <p align="center">
-  <strong>ai-shop Professional Edition v3.3.0</strong>
+  <strong>ai-shop Professional Edition v3.3.1</strong>
 </p>
 
 
@@ -237,7 +237,7 @@ sudo bash reset-panel-password.sh
 
 # 🔐 صفحه ورود حرفه‌ای و کپی رمز
 
-نسخه 3.3.0 پنجره ساده Basic Auth مرورگر را با یک صفحه ورود فارسی و واکنش‌گرا جایگزین می‌کند:
+نسخه 3.3.1 پنجره ساده Basic Auth مرورگر را با یک صفحه ورود فارسی و واکنش‌گرا جایگزین می‌کند:
 
 ```text
 https://YOUR-DOMAIN/admin/login
@@ -270,7 +270,7 @@ https://YOUR-DOMAIN/admin/logout
 
 # 🔐 رمز یک‌بارمصرف پنل
 
-در نسخه 3.3.0 رمز ثابت پنل از طریق ربات نمایش داده نمی‌شود. هر بار مدیر روی گزینه زیر بزند:
+در نسخه 3.3.1 رمز ثابت پنل از طریق ربات نمایش داده نمی‌شود. هر بار مدیر روی گزینه زیر بزند:
 
 ```text
 🔐 رمز پنل وب
@@ -294,7 +294,7 @@ https://YOUR-DOMAIN/admin/logout
 
 # 🌐 رفع خطای SSL و 502
 
-نسخه 3.3.0 این موارد را اضافه می‌کند:
+نسخه 3.3.1 این موارد را اضافه می‌کند:
 
 - انتظار تا ۶۰ ثانیه برای آماده‌شدن برنامه قبل از Reload کردن Nginx
 - ثبت وضعیت سرویس و ۱۲۰ خط آخر لاگ هنگام شکست
@@ -316,4 +316,45 @@ sudo bash repair.sh
 sudo bash health-check.sh
 systemctl status ai-shop --no-pager
 journalctl -u ai-shop -n 100 --no-pager
+```
+
+
+---
+
+# رفع Rollback ناشی از Nginx در نسخه 3.3.1
+
+خطای زیر در نسخه قبلی رفع شده است:
+
+```text
+nginx: [emerg] "proxy_http_version" directive is duplicate
+nginx: configuration file /etc/nginx/nginx.conf test failed
+```
+
+علت، تکرار دستور `proxy_http_version 1.1` در قالب Nginx بود. نسخه 3.3.1:
+
+- قالب Nginx را از نو و بدون دستورات تکراری ساخته است.
+- فایل Nginx جدید را قبل از جایگزینی بررسی می‌کند.
+- تا زمانی که برنامه روی `/health` پاسخ ندهد، تنظیم فعال Nginx را تغییر نمی‌دهد.
+- فقط پس از سلامت برنامه، `nginx -t` و Reload انجام می‌شود.
+- در صورت شکست، فایل Nginx قبلی همراه برنامه قبلی بازیابی می‌شود.
+
+## تعمیر مستقیم سرور فعلی
+
+بعد از قرار دادن نسخه 3.3.1 در GitHub:
+
+```bash
+cd ~/ai-shop
+git fetch origin
+git reset --hard origin/main
+sudo bash repair.sh
+sudo bash remote-update.sh
+```
+
+بررسی نهایی:
+
+```bash
+nginx -t
+systemctl status ai-shop --no-pager
+curl -s http://127.0.0.1:3000/health
+curl -s http://127.0.0.1:3000/version
 ```

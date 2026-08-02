@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-VERSION="3.3.0"
+VERSION="3.3.1"
 
 
 
@@ -104,6 +104,28 @@ mask_secret() {
   fi
 }
 
+
+validate_nginx_candidate() {
+  local candidate="$1"
+  local duplicate
+  duplicate="$(awk '
+    /^[[:space:]]*(proxy_http_version|proxy_connect_timeout|proxy_send_timeout|proxy_read_timeout|proxy_next_upstream_tries)[[:space:]]/ {
+      key=$1
+      count[key]++
+    }
+    END {
+      for (key in count) {
+        if (count[key] > 1) print key
+      }
+    }
+  ' "$candidate")"
+
+  if [ -n "$duplicate" ]; then
+    fail "دستور تکراری در Nginx پیدا شد: $duplicate"
+    return 1
+  fi
+}
+
 [ "$(id -u)" -eq 0 ] || {
   fail "اجرا کنید: sudo bash update.sh"
   exit 1
@@ -163,9 +185,13 @@ rm -rf /opt/ai-shop/docs
 
 cp "$PROJECT_DIR/systemd/ai-shop.service" /etc/systemd/system/ai-shop.service
 DOMAIN="$(grep '^DOMAIN=' /opt/ai-shop/.env | cut -d= -f2-)"
-sed "s/__DOMAIN__/${DOMAIN}/g" "$PROJECT_DIR/nginx/ai-shop.conf" > /etc/nginx/sites-available/ai-shop
-ln -sf /etc/nginx/sites-available/ai-shop /etc/nginx/sites-enabled/ai-shop
-nginx -t
+[ -n "$DOMAIN" ] || {
+  fail "مقدار DOMAIN در /opt/ai-shop/.env خالی است."
+  false
+}
+NGINX_CANDIDATE="$(mktemp /tmp/ai-shop-nginx.XXXXXX)"
+sed "s/__DOMAIN__/${DOMAIN}/g" "$PROJECT_DIR/nginx/ai-shop.conf" > "$NGINX_CANDIDATE"
+validate_nginx_candidate "$NGINX_CANDIDATE"
 systemctl daemon-reload
 systemctl restart ai-shop
 
@@ -195,6 +221,11 @@ for _ in $(seq 1 45); do
 done
 ACTIVE_VERSION="$(curl -fsS http://127.0.0.1:3000/version)"
 echo "$ACTIVE_VERSION" | grep -Eq '"version"[[:space:]]*:[[:space:]]*"'"$TARGET_VERSION"'"'
+cp "$NGINX_CANDIDATE" /etc/nginx/sites-available/ai-shop
+ln -sf /etc/nginx/sites-available/ai-shop /etc/nginx/sites-enabled/ai-shop
+nginx -t
+systemctl reload nginx
+rm -f "$NGINX_CANDIDATE"
 trap - ERR
 ok "نسخه فعال: $TARGET_VERSION"
 summary_box
