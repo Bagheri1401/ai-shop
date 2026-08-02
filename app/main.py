@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import secrets
 import hashlib
+import time
 import io
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from http.cookies import SimpleCookie
@@ -42,34 +43,87 @@ ADMIN_ID=os.getenv("ADMIN_TELEGRAM_ID","")
 ADMIN_USER=os.getenv("ADMIN_USERNAME","admin")
 ADMIN_PASS=os.getenv("ADMIN_PASSWORD","change-me")
 CURRENCY=os.getenv("CURRENCY","IRR")
-APP_VERSION="3.3.1"
+APP_VERSION="3.4.0"
 ADMIN_SESSION_TOKEN=secrets.token_urlsafe(36)
 
 ADMIN_OTP_TTL_SECONDS=300
-ADMIN_OTP_STATE={"hash":"","expires_at":0.0,"used":True}
 
-def issue_admin_otp():
-    # 10 chars, easy to copy but difficult to guess.
+def otp_hash(value):
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+def issue_admin_otp(telegram_id):
+    """Create a new OTP and invalidate all older OTPs for this admin."""
     alphabet="ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
     otp="".join(secrets.choice(alphabet) for _ in range(10))
-    ADMIN_OTP_STATE["hash"]=hashlib.sha256(otp.encode("utf-8")).hexdigest()
-    ADMIN_OTP_STATE["expires_at"]=time.time()+ADMIN_OTP_TTL_SECONDS
-    ADMIN_OTP_STATE["used"]=False
+    digest=otp_hash(otp)
+
+    conn=db()
+    try:
+        cur=conn.cursor()
+        cur.execute("""
+          UPDATE admin_login_otps
+             SET used_at=NOW()
+           WHERE telegram_id=%s
+             AND used_at IS NULL
+        """,(int(telegram_id),))
+        cur.execute("""
+          INSERT INTO admin_login_otps(
+            telegram_id,otp_hash,expires_at,created_at
+          ) VALUES(
+            %s,%s,NOW()+(%s * INTERVAL '1 second'),NOW()
+          )
+        """,(int(telegram_id),digest,ADMIN_OTP_TTL_SECONDS))
+        conn.commit()
+        cur.close()
+    finally:
+        conn.close()
     return otp
 
 def consume_admin_otp(candidate):
-    if not candidate or ADMIN_OTP_STATE.get("used",True):
+    """Atomically consume one valid, unused OTP."""
+    if not candidate:
         return False
-    if time.time()>float(ADMIN_OTP_STATE.get("expires_at",0)):
-        ADMIN_OTP_STATE["used"]=True
-        return False
-    candidate_hash=hashlib.sha256(candidate.encode("utf-8")).hexdigest()
-    if not secrets.compare_digest(candidate_hash,ADMIN_OTP_STATE.get("hash","")):
-        return False
-    ADMIN_OTP_STATE["used"]=True
-    ADMIN_OTP_STATE["hash"]=""
-    ADMIN_OTP_STATE["expires_at"]=0.0
-    return True
+
+    digest=otp_hash(candidate.strip())
+    conn=db()
+    try:
+        cur=conn.cursor()
+        cur.execute("""
+          UPDATE admin_login_otps
+             SET used_at=NOW()
+           WHERE id=(
+             SELECT id
+               FROM admin_login_otps
+              WHERE otp_hash=%s
+                AND used_at IS NULL
+                AND expires_at>NOW()
+              ORDER BY id DESC
+              LIMIT 1
+              FOR UPDATE SKIP LOCKED
+           )
+         RETURNING id
+        """,(digest,))
+        row=cur.fetchone()
+        conn.commit()
+        cur.close()
+        return bool(row)
+    finally:
+        conn.close()
+
+def cleanup_admin_otps():
+    try:
+        conn=db()
+        cur=conn.cursor()
+        cur.execute("""
+          DELETE FROM admin_login_otps
+           WHERE expires_at < NOW() - INTERVAL '1 day'
+              OR used_at < NOW() - INTERVAL '1 day'
+        """)
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as exc:
+        print("OTP cleanup error",repr(exc))
 
 def db():
     return psycopg2.connect(
@@ -107,6 +161,18 @@ STATE=PersistentState()
 def init_db():
     conn=db(); cur=conn.cursor()
     cur.execute("""
+    CREATE TABLE IF NOT EXISTS admin_login_otps(
+      id BIGSERIAL PRIMARY KEY,
+      telegram_id BIGINT NOT NULL,
+      otp_hash TEXT NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      used_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_admin_login_otps_lookup
+      ON admin_login_otps(otp_hash,expires_at)
+      WHERE used_at IS NULL;
+
     CREATE TABLE IF NOT EXISTS users(
       id BIGSERIAL PRIMARY KEY,
       telegram_id BIGINT UNIQUE NOT NULL,
@@ -426,7 +492,20 @@ def remove_bottom_keyboard():
     return {"remove_keyboard":True}
 
 def send_panel_credentials(chat_id):
-    otp=issue_admin_otp()
+    try:
+        otp=issue_admin_otp(chat_id)
+    except Exception as exc:
+        print("OTP issue error",repr(exc))
+        return tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":(
+            "❌ صدور رمز یک‌بارمصرف انجام نشد.\n\n"
+            "دیتابیس یا جدول OTP در دسترس نیست. مدیر سرور باید "
+            "سرویس را آپدیت و یک‌بار ریستارت کند."
+          ),
+          "reply_markup":admin_bottom_keyboard()
+        })
+
     safe_otp=html.escape(otp)
     safe_user=html.escape(str(ADMIN_USER))
     safe_url=html.escape(f"{PUBLIC_URL}/admin/login")
@@ -436,7 +515,8 @@ def send_panel_credentials(chat_id):
         "🔐 <b>ورود یک‌بارمصرف به پنل</b>\n\n"
         f"🌐 صفحه ورود:\n<code>{safe_url}</code>\n\n"
         f"👤 نام کاربری:\n<code>{safe_user}</code>\n\n"
-        "رمز زیر فقط برای <b>یک ورود</b> معتبر است و پس از ۵ دقیقه منقضی می‌شود."
+        "رمز پیام بعدی فقط برای <b>یک ورود</b> معتبر است "
+        "و بعد از ۵ دقیقه منقضی می‌شود."
       ),
       "parse_mode":"HTML",
       "disable_web_page_preview":True,
@@ -1161,7 +1241,7 @@ def handle_message(msg):
         return tg_safe("sendMessage",{"chat_id":chat_id,"text":"رسید در دیتابیس ثبت شد و در انتظار بررسی است."})
 
 class Handler(BaseHTTPRequestHandler):
-    server_version="ai-shop/3.3.1"
+    server_version="ai-shop/3.4.0"
 
     def log_message(self, fmt, *args):
         print(f"{self.address_string()} - {fmt%args}")
@@ -1705,5 +1785,6 @@ code{{color:#8ec4ff}} @media(max-width:900px){{.shell{{display:block}} aside{{he
 
 if __name__=="__main__":
     init_db()
+    cleanup_admin_otps()
     print(f"ai-shop v{APP_VERSION} listening on {HOST}:{PORT}")
     ThreadingHTTPServer((HOST,PORT),Handler).serve_forever()

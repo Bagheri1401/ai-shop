@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-VERSION="3.3.1"
+VERSION="3.4.0"
 
 
 
@@ -195,6 +195,7 @@ validate_nginx_candidate "$NGINX_CANDIDATE"
 systemctl daemon-reload
 systemctl restart ai-shop
 
+# main.py creates the OTP table on startup. A second restart is not needed.
 APP_READY=0
 for _ in $(seq 1 60); do
   if curl -fsS http://127.0.0.1:3000/health >/dev/null 2>&1; then

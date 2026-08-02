@@ -1,4 +1,4 @@
-# 🛍️ ai-shop Professional Edition v3.3.1
+# 🛍️ ai-shop Professional Edition v3.4.0
 
 <p align="center">
   <strong>Telegram AI Commerce Platform</strong><br>
@@ -7,7 +7,7 @@
 
 ---
 
-## ✨ تغییرات نسخه 3.3.1
+## ✨ تغییرات نسخه 3.4.0
 
 - نصب‌کننده فارسی با چیدمان تمیزتر و خروجی مرحله‌ای
 - نوار پیشرفت نصب
@@ -104,7 +104,7 @@ echo
 خروجی:
 
 ```json
-{"name":"ai-shop","version":"3.3.1"}
+{"name":"ai-shop","version":"3.4.0"}
 ```
 
 ---
@@ -178,7 +178,7 @@ sudo bash uninstall.sh
 ---
 
 <p align="center">
-  <strong>ai-shop Professional Edition v3.3.1</strong>
+  <strong>ai-shop Professional Edition v3.4.0</strong>
 </p>
 
 
@@ -237,7 +237,7 @@ sudo bash reset-panel-password.sh
 
 # 🔐 صفحه ورود حرفه‌ای و کپی رمز
 
-نسخه 3.3.1 پنجره ساده Basic Auth مرورگر را با یک صفحه ورود فارسی و واکنش‌گرا جایگزین می‌کند:
+نسخه 3.4.0 پنجره ساده Basic Auth مرورگر را با یک صفحه ورود فارسی و واکنش‌گرا جایگزین می‌کند:
 
 ```text
 https://YOUR-DOMAIN/admin/login
@@ -270,7 +270,7 @@ https://YOUR-DOMAIN/admin/logout
 
 # 🔐 رمز یک‌بارمصرف پنل
 
-در نسخه 3.3.1 رمز ثابت پنل از طریق ربات نمایش داده نمی‌شود. هر بار مدیر روی گزینه زیر بزند:
+در نسخه 3.4.0 رمز ثابت پنل از طریق ربات نمایش داده نمی‌شود. هر بار مدیر روی گزینه زیر بزند:
 
 ```text
 🔐 رمز پنل وب
@@ -294,7 +294,7 @@ https://YOUR-DOMAIN/admin/logout
 
 # 🌐 رفع خطای SSL و 502
 
-نسخه 3.3.1 این موارد را اضافه می‌کند:
+نسخه 3.4.0 این موارد را اضافه می‌کند:
 
 - انتظار تا ۶۰ ثانیه برای آماده‌شدن برنامه قبل از Reload کردن Nginx
 - ثبت وضعیت سرویس و ۱۲۰ خط آخر لاگ هنگام شکست
@@ -321,7 +321,7 @@ journalctl -u ai-shop -n 100 --no-pager
 
 ---
 
-# رفع Rollback ناشی از Nginx در نسخه 3.3.1
+# رفع Rollback ناشی از Nginx در نسخه 3.4.0
 
 خطای زیر در نسخه قبلی رفع شده است:
 
@@ -330,7 +330,7 @@ nginx: [emerg] "proxy_http_version" directive is duplicate
 nginx: configuration file /etc/nginx/nginx.conf test failed
 ```
 
-علت، تکرار دستور `proxy_http_version 1.1` در قالب Nginx بود. نسخه 3.3.1:
+علت، تکرار دستور `proxy_http_version 1.1` در قالب Nginx بود. نسخه 3.4.0:
 
 - قالب Nginx را از نو و بدون دستورات تکراری ساخته است.
 - فایل Nginx جدید را قبل از جایگزینی بررسی می‌کند.
@@ -340,7 +340,7 @@ nginx: configuration file /etc/nginx/nginx.conf test failed
 
 ## تعمیر مستقیم سرور فعلی
 
-بعد از قرار دادن نسخه 3.3.1 در GitHub:
+بعد از قرار دادن نسخه 3.4.0 در GitHub:
 
 ```bash
 cd ~/ai-shop
@@ -358,3 +358,51 @@ systemctl status ai-shop --no-pager
 curl -s http://127.0.0.1:3000/health
 curl -s http://127.0.0.1:3000/version
 ```
+
+
+---
+
+# رفع مشکل صادر نشدن رمز پنل در نسخه 3.4.0
+
+مشکل نسخه قبل این بود که تابع OTP از `time.time()` استفاده می‌کرد، اما ماژول `time` وارد نشده بود. در نتیجه Webhook با خطای 500 متوقف می‌شد و ربات پاسخی نمی‌داد.
+
+نسخه 3.4.0 علاوه بر رفع Import، رمزها را در PostgreSQL ذخیره می‌کند:
+
+- رمزهای قدیمی با درخواست رمز جدید باطل می‌شوند.
+- رمز فقط یک‌بار مصرف می‌شود.
+- اعتبار رمز پنج دقیقه است.
+- مصرف رمز به‌صورت اتمیک در دیتابیس انجام می‌شود.
+- ریستارت سرویس، رمز معتبر را از بین نمی‌برد.
+- رمز خام در دیتابیس ذخیره نمی‌شود؛ فقط SHA-256 آن ذخیره می‌شود.
+
+## تعمیر نصب فعلی
+
+پس از آپلود نسخه جدید در GitHub:
+
+```bash
+cd ~/ai-shop
+git fetch origin
+git reset --hard origin/main
+sudo bash remote-update.sh
+```
+
+اگر نسخه جدید نصب شده ولی جدول OTP ساخته نشده است:
+
+```bash
+cd ~/ai-shop
+sudo bash migrate-otp.sh
+```
+
+سپس در ربات:
+
+```text
+/panelpass
+```
+
+یا دکمه:
+
+```text
+🔐 رمز پنل وب
+```
+
+را بزنید.

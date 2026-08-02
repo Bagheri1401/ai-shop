@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -u
-VERSION="3.3.1"
+VERSION="3.4.0"
 
 
 
