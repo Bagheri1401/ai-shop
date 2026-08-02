@@ -43,7 +43,7 @@ ADMIN_ID=os.getenv("ADMIN_TELEGRAM_ID","")
 ADMIN_USER=os.getenv("ADMIN_USERNAME","admin")
 ADMIN_PASS=os.getenv("ADMIN_PASSWORD","change-me")
 CURRENCY=os.getenv("CURRENCY","IRR")
-APP_VERSION="3.5.0"
+APP_VERSION="4.0.0"
 ADMIN_SESSION_TOKEN=secrets.token_urlsafe(36)
 
 ADMIN_OTP_TTL_SECONDS=300
@@ -544,6 +544,398 @@ def send_panel_credentials(chat_id):
       "reply_markup":admin_bottom_keyboard()
     })
 
+
+def admin_manage_keyboard():
+    return {"inline_keyboard":[
+      [
+        {"text":"🛍 محصولات","callback_data":"botadm:products"},
+        {"text":"🗂 دسته‌بندی‌ها","callback_data":"botadm:categories"}
+      ],
+      [
+        {"text":"🔑 موجودی اکانت","callback_data":"botadm:inventory"},
+        {"text":"📦 سفارش‌ها","callback_data":"botadm:orders"}
+      ],
+      [
+        {"text":"🧾 رسیدها","callback_data":"botadm:receipts"},
+        {"text":"👥 کاربران","callback_data":"botadm:users"}
+      ],
+      [
+        {"text":"💰 کیف پول","callback_data":"botadm:wallet"},
+        {"text":"🎟 تخفیف‌ها","callback_data":"botadm:discounts"}
+      ],
+      [
+        {"text":"🎫 تیکت‌ها","callback_data":"botadm:tickets"},
+        {"text":"💳 درگاه‌ها","callback_data":"botadm:gateways"}
+      ],
+      [
+        {"text":"📢 پیام همگانی","callback_data":"botadm:broadcast"},
+        {"text":"⚙️ تنظیمات فروشگاه","callback_data":"botadm:settings"}
+      ],
+      [
+        {"text":"📊 گزارش‌ها","callback_data":"botadm:reports"},
+        {"text":"🩺 سلامت ربات","callback_data":"botadm:health"}
+      ],
+      [{"text":"🔐 رمز یک‌بارمصرف پنل","callback_data":"adm:panel_password"}],
+      [{"text":"🏠 منوی اصلی","callback_data":"home"}]
+    ]}
+
+def bot_admin_home(chat_id):
+    return tg("sendMessage",{
+      "chat_id":chat_id,
+      "text":(
+        "🛡 مدیریت کامل ai-shop داخل تلگرام\n\n"
+        "تمام عملیات اصلی فروشگاه از همین منو قابل انجام است. "
+        "پنل وب فقط برای شرایط اضطراری و مشاهده پشتیبان باقی مانده است."
+      ),
+      "reply_markup":admin_manage_keyboard()
+    })
+
+def product_admin_keyboard():
+    return {"inline_keyboard":[
+      [{"text":"➕ افزودن محصول","callback_data":"botadm:product:add"}],
+      [{"text":"📋 فهرست و مدیریت محصولات","callback_data":"botadm:product:list"}],
+      [{"text":"🔄 فعال/غیرفعال محصول","callback_data":"botadm:product:toggle"}],
+      [{"text":"🗑 حذف محصول","callback_data":"botadm:product:delete"}],
+      [{"text":"⬅️ بازگشت","callback_data":"botadm:home"}]
+    ]}
+
+def category_admin_keyboard():
+    return {"inline_keyboard":[
+      [{"text":"➕ افزودن دسته‌بندی","callback_data":"botadm:category:add"}],
+      [{"text":"📋 فهرست دسته‌بندی‌ها","callback_data":"botadm:category:list"}],
+      [{"text":"🗑 حذف دسته‌بندی","callback_data":"botadm:category:delete"}],
+      [{"text":"⬅️ بازگشت","callback_data":"botadm:home"}]
+    ]}
+
+def inventory_admin_keyboard():
+    return {"inline_keyboard":[
+      [{"text":"➕ افزودن اکانت آماده","callback_data":"botadm:inventory:add"}],
+      [{"text":"📊 موجودی محصولات","callback_data":"botadm:inventory:list"}],
+      [{"text":"🗑 حذف موجودی","callback_data":"botadm:inventory:delete"}],
+      [{"text":"⬅️ بازگشت","callback_data":"botadm:home"}]
+    ]}
+
+def discount_admin_keyboard():
+    return {"inline_keyboard":[
+      [{"text":"➕ ساخت کد تخفیف","callback_data":"botadm:discount:add"}],
+      [{"text":"📋 فهرست تخفیف‌ها","callback_data":"botadm:discount:list"}],
+      [{"text":"🔄 فعال/غیرفعال","callback_data":"botadm:discount:toggle"}],
+      [{"text":"🗑 حذف تخفیف","callback_data":"botadm:discount:delete"}],
+      [{"text":"⬅️ بازگشت","callback_data":"botadm:home"}]
+    ]}
+
+def settings_admin_keyboard():
+    return {"inline_keyboard":[
+      [{"text":"🏷 نام فروشگاه","callback_data":"botadm:setting:shop_title"}],
+      [{"text":"🆘 متن پشتیبانی","callback_data":"botadm:setting:support_text"}],
+      [{"text":"📣 متن اطلاع‌رسانی","callback_data":"botadm:setting:announcement_text"}],
+      [{"text":"🤝 متن نمایندگی","callback_data":"botadm:setting:agency_text"}],
+      [{"text":"⬅️ بازگشت","callback_data":"botadm:home"}]
+    ]}
+
+def list_products_text():
+    rows=admin_text_list("""
+      SELECT p.id,p.title,p.price,p.active,p.auto_delivery,p.stock_mode,
+             COALESCE(c.title,'بدون دسته') category,
+             COUNT(i.id) FILTER (WHERE i.status='available') stock
+      FROM products p
+      LEFT JOIN categories c ON c.id=p.category_id
+      LEFT JOIN service_inventory i ON i.product_id=p.id
+      GROUP BY p.id,c.title
+      ORDER BY p.id DESC LIMIT 100
+    """)
+    if not rows:
+        return "محصولی ثبت نشده است."
+    return "\n\n".join(
+      f"#{r['id']} | {r['title']}\n"
+      f"💰 {money(r['price'])} | 🗂 {r['category']}\n"
+      f"{'✅ فعال' if r['active'] else '⛔ غیرفعال'} | "
+      f"تحویل: {'خودکار' if r['auto_delivery'] else 'دستی'} | موجودی: {r['stock']}"
+      for r in rows
+    )
+
+def list_categories_text():
+    rows=admin_text_list("SELECT id,title,emoji,active FROM categories ORDER BY sort_order,id")
+    return "\n".join(
+      f"#{r['id']} | {r['emoji']} {r['title']} | {'فعال' if r['active'] else 'غیرفعال'}"
+      for r in rows
+    ) or "دسته‌بندی‌ای ثبت نشده است."
+
+def list_inventory_text():
+    rows=admin_text_list("""
+      SELECT p.id,p.title,
+             COUNT(i.id) FILTER (WHERE i.status='available') available,
+             COUNT(i.id) FILTER (WHERE i.status='delivered') delivered
+      FROM products p LEFT JOIN service_inventory i ON i.product_id=p.id
+      GROUP BY p.id ORDER BY p.id
+    """)
+    return "\n".join(
+      f"#{r['id']} | {r['title']} | آماده: {r['available']} | تحویل‌شده: {r['delivered']}"
+      for r in rows
+    ) or "محصولی وجود ندارد."
+
+def list_orders_text():
+    rows=admin_text_list("""
+      SELECT o.id,o.telegram_id,o.amount,o.status,p.title
+      FROM orders o LEFT JOIN products p ON p.id=o.product_id
+      ORDER BY o.id DESC LIMIT 40
+    """)
+    return "\n".join(
+      f"#{r['id']} | {r['title'] or '-'} | {r['status']} | "
+      f"{money(r['amount'])} | کاربر {r['telegram_id']}"
+      for r in rows
+    ) or "سفارشی ثبت نشده است."
+
+def list_receipts_text():
+    rows=admin_text_list("""
+      SELECT o.id,o.telegram_id,o.amount,o.status,p.title
+      FROM orders o LEFT JOIN products p ON p.id=o.product_id
+      WHERE o.receipt_file_id IS NOT NULL AND o.status IN ('pending','receipt_sent')
+      ORDER BY o.id DESC LIMIT 40
+    """)
+    return "\n".join(
+      f"#{r['id']} | {r['title'] or '-'} | {money(r['amount'])} | کاربر {r['telegram_id']}"
+      for r in rows
+    ) or "رسید تأییدنشده‌ای وجود ندارد."
+
+def list_tickets_text():
+    rows=admin_text_list("""
+      SELECT id,telegram_id,subject,status,created_at
+      FROM tickets ORDER BY id DESC LIMIT 40
+    """)
+    return "\n".join(
+      f"#{r['id']} | {r['subject']} | {r['status']} | کاربر {r['telegram_id']}"
+      for r in rows
+    ) or "تیکتی وجود ندارد."
+
+def set_setting_value(key,value):
+    conn=db(); cur=conn.cursor()
+    cur.execute("""
+      INSERT INTO app_settings(key,value,updated_at) VALUES(%s,%s,NOW())
+      ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=NOW()
+    """,(key,value))
+    conn.commit(); cur.close(); conn.close()
+    audit("update_setting","setting",key,value)
+
+def safe_int(value):
+    return int(str(value).replace(",","").replace(" ","").strip())
+
+def handle_bot_admin_callback(q):
+    chat_id=q["message"]["chat"]["id"]
+    uid=q["from"]["id"]
+    data=q.get("data","")
+    if not admin_allowed(uid):
+        return tg("answerCallbackQuery",{
+          "callback_query_id":q["id"],
+          "text":"دسترسی مدیر ندارید.",
+          "show_alert":True
+        })
+    tg("answerCallbackQuery",{"callback_query_id":q["id"]})
+
+    if data in ("botadm:newproduct:auto","botadm:newproduct:manual"):
+        s=STATE.get(uid)
+        if not s or s.get("step")!="bot_product_delivery_mode":
+            return tg("sendMessage",{"chat_id":chat_id,"text":"فرآیند افزودن محصول منقضی شده است.","reply_markup":product_admin_keyboard()})
+        s["auto_delivery"]=data.endswith("auto")
+        s["stock_mode"]="inventory" if s["auto_delivery"] else "manual"
+        s["step"]="bot_product_delivery_text"
+        return tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":"متن تحویل یا پیام پس از خرید را ارسال کنید.\nبرای تحویل خودکار، بعداً از بخش موجودی اکانت اطلاعات واقعی اضافه کنید."
+        })
+
+    if data=="botadm:home":
+        return bot_admin_home(chat_id)
+
+    if data=="botadm:products":
+        return tg("sendMessage",{"chat_id":chat_id,"text":"🛍 مدیریت محصولات","reply_markup":product_admin_keyboard()})
+    if data=="botadm:product:list":
+        return tg("sendMessage",{"chat_id":chat_id,"text":"📋 محصولات\n\n"+list_products_text(),"reply_markup":product_admin_keyboard()})
+    if data=="botadm:product:add":
+        STATE[uid]={"step":"bot_product_title"}
+        return tg("sendMessage",{"chat_id":chat_id,"text":"➕ نام محصول را ارسال کنید.\nمثال: ChatGPT Plus یک‌ماهه"})
+    if data=="botadm:product:toggle":
+        STATE[uid]={"step":"bot_product_toggle"}
+        return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه محصول را برای فعال/غیرفعال‌کردن بفرستید.\n\n"+list_products_text()})
+    if data=="botadm:product:delete":
+        STATE[uid]={"step":"bot_product_delete"}
+        return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه محصولی که باید حذف شود را بفرستید.\n\n"+list_products_text()})
+
+    if data=="botadm:categories":
+        return tg("sendMessage",{"chat_id":chat_id,"text":"🗂 مدیریت دسته‌بندی‌ها","reply_markup":category_admin_keyboard()})
+    if data=="botadm:category:list":
+        return tg("sendMessage",{"chat_id":chat_id,"text":"🗂 دسته‌بندی‌ها\n\n"+list_categories_text(),"reply_markup":category_admin_keyboard()})
+    if data=="botadm:category:add":
+        STATE[uid]={"step":"bot_category_title"}
+        return tg("sendMessage",{"chat_id":chat_id,"text":"نام دسته‌بندی را ارسال کنید.\nمثال: چت‌بات‌ها"})
+    if data=="botadm:category:delete":
+        STATE[uid]={"step":"bot_category_delete"}
+        return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه دسته‌بندی را برای حذف ارسال کنید.\n\n"+list_categories_text()})
+
+    if data=="botadm:inventory":
+        return tg("sendMessage",{"chat_id":chat_id,"text":"🔑 مدیریت موجودی اکانت‌های آماده","reply_markup":inventory_admin_keyboard()})
+    if data=="botadm:inventory:list":
+        return tg("sendMessage",{"chat_id":chat_id,"text":"📊 موجودی\n\n"+list_inventory_text(),"reply_markup":inventory_admin_keyboard()})
+    if data=="botadm:inventory:add":
+        STATE[uid]={"step":"bot_inventory_product"}
+        return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه محصول را ارسال کنید.\n\n"+list_products_text()})
+    if data=="botadm:inventory:delete":
+        STATE[uid]={"step":"bot_inventory_delete"}
+        rows=admin_text_list("""
+          SELECT i.id,p.title,i.status FROM service_inventory i
+          JOIN products p ON p.id=i.product_id
+          ORDER BY i.id DESC LIMIT 40
+        """)
+        text="\n".join(f"#{r['id']} | {r['title']} | {r['status']}" for r in rows) or "موجودی‌ای ثبت نشده است."
+        return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه موجودی را برای حذف بفرستید.\n\n"+text})
+
+    if data=="botadm:orders":
+        return tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":"📦 آخرین سفارش‌ها\n\n"+list_orders_text(),
+          "reply_markup":{"inline_keyboard":[
+            [{"text":"✅ تأیید و تحویل سفارش","callback_data":"botadm:order:approve"}],
+            [{"text":"❌ رد سفارش","callback_data":"botadm:order:reject"}],
+            [{"text":"⬅️ بازگشت","callback_data":"botadm:home"}]
+          ]}
+        })
+    if data=="botadm:order:approve":
+        STATE[uid]={"step":"bot_order_approve"}
+        return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه سفارش را برای تأیید و تحویل ارسال کنید.\n\n"+list_orders_text()})
+    if data=="botadm:order:reject":
+        STATE[uid]={"step":"bot_order_reject"}
+        return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه سفارش را برای رد ارسال کنید.\n\n"+list_orders_text()})
+
+    if data=="botadm:receipts":
+        return tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":"🧾 رسیدهای در انتظار\n\n"+list_receipts_text(),
+          "reply_markup":{"inline_keyboard":[
+            [{"text":"✅ تأیید رسید","callback_data":"botadm:receipt:approve"}],
+            [{"text":"❌ رد رسید","callback_data":"botadm:receipt:reject"}],
+            [{"text":"⬅️ بازگشت","callback_data":"botadm:home"}]
+          ]}
+        })
+    if data=="botadm:receipt:approve":
+        STATE[uid]={"step":"bot_order_approve"}
+        return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه سفارش رسیددار را ارسال کنید.\n\n"+list_receipts_text()})
+    if data=="botadm:receipt:reject":
+        STATE[uid]={"step":"bot_order_reject"}
+        return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه سفارش را برای رد رسید ارسال کنید.\n\n"+list_receipts_text()})
+
+    if data=="botadm:users":
+        return tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":"👥 مدیریت کاربران",
+          "reply_markup":{"inline_keyboard":[
+            [{"text":"🔎 جستجوی کاربر","callback_data":"botadm:user:find"}],
+            [{"text":"🚫 مسدود/آزادسازی","callback_data":"botadm:user:block"}],
+            [{"text":"⬅️ بازگشت","callback_data":"botadm:home"}]
+          ]}
+        })
+    if data=="botadm:user:find":
+        STATE[uid]={"step":"bot_user_find"}
+        return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه عددی کاربر یا نام کاربری را ارسال کنید."})
+    if data=="botadm:user:block":
+        return tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":"🚫 قابلیت مسدودسازی در نسخه بعدی با جدول دسترسی مستقل اضافه می‌شود. اکنون اطلاعات و کیف پول کاربر از همین ربات قابل مدیریت است.",
+          "reply_markup":admin_manage_keyboard()
+        })
+
+    if data=="botadm:wallet":
+        return tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":"💰 مدیریت کیف پول",
+          "reply_markup":{"inline_keyboard":[
+            [{"text":"➕ افزایش اعتبار","callback_data":"botadm:wallet:add"}],
+            [{"text":"➖ کاهش اعتبار","callback_data":"botadm:wallet:subtract"}],
+            [{"text":"📜 تراکنش‌های اخیر","callback_data":"botadm:wallet:list"}],
+            [{"text":"⬅️ بازگشت","callback_data":"botadm:home"}]
+          ]}
+        })
+    if data in ("botadm:wallet:add","botadm:wallet:subtract"):
+        STATE[uid]={"step":"bot_wallet_user","wallet_mode":"add" if data.endswith("add") else "subtract"}
+        return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه عددی کاربر را ارسال کنید."})
+    if data=="botadm:wallet:list":
+        rows=admin_text_list("""
+          SELECT telegram_id,amount,kind,description,created_at
+          FROM wallet_transactions ORDER BY id DESC LIMIT 40
+        """)
+        text="\n".join(
+          f"{r['telegram_id']} | {r['amount']} | {r['kind']} | {r['description'] or '-'}"
+          for r in rows
+        ) or "تراکنشی وجود ندارد."
+        return tg("sendMessage",{"chat_id":chat_id,"text":"📜 تراکنش‌ها\n\n"+text,"reply_markup":admin_manage_keyboard()})
+
+    if data=="botadm:discounts":
+        return tg("sendMessage",{"chat_id":chat_id,"text":"🎟 مدیریت تخفیف‌ها","reply_markup":discount_admin_keyboard()})
+    if data=="botadm:discount:list":
+        return tg("sendMessage",{"chat_id":chat_id,"text":admin_discounts_text(),"reply_markup":discount_admin_keyboard()})
+    if data=="botadm:discount:add":
+        STATE[uid]={"step":"bot_discount_code"}
+        return tg("sendMessage",{"chat_id":chat_id,"text":"کد تخفیف را ارسال کنید.\nمثال: SUMMER20"})
+    if data=="botadm:discount:toggle":
+        STATE[uid]={"step":"bot_discount_toggle"}
+        return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه کد تخفیف را ارسال کنید.\n\n"+admin_discounts_text()})
+    if data=="botadm:discount:delete":
+        STATE[uid]={"step":"bot_discount_delete"}
+        return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه کد تخفیف را برای حذف ارسال کنید.\n\n"+admin_discounts_text()})
+
+    if data=="botadm:tickets":
+        return tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":"🎫 تیکت‌ها\n\n"+list_tickets_text(),
+          "reply_markup":{"inline_keyboard":[
+            [{"text":"✍️ پاسخ به تیکت","callback_data":"botadm:ticket:reply"}],
+            [{"text":"✅ بستن تیکت","callback_data":"botadm:ticket:close"}],
+            [{"text":"⬅️ بازگشت","callback_data":"botadm:home"}]
+          ]}
+        })
+    if data=="botadm:ticket:reply":
+        STATE[uid]={"step":"bot_ticket_id"}
+        return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه تیکت را ارسال کنید.\n\n"+list_tickets_text()})
+    if data=="botadm:ticket:close":
+        STATE[uid]={"step":"bot_ticket_close"}
+        return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه تیکت را برای بستن ارسال کنید."})
+
+    if data=="botadm:gateways":
+        rows=admin_text_list("SELECT id,code,title,enabled FROM payment_gateways ORDER BY id")
+        text="\n".join(f"#{r['id']} | {r['title']} | {'فعال' if r['enabled'] else 'غیرفعال'}" for r in rows)
+        return tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":"💳 درگاه‌ها\n\n"+text,
+          "reply_markup":{"inline_keyboard":[
+            [{"text":"🔄 تغییر وضعیت درگاه","callback_data":"botadm:gateway:toggle"}],
+            [{"text":"⬅️ بازگشت","callback_data":"botadm:home"}]
+          ]}
+        })
+    if data=="botadm:gateway:toggle":
+        STATE[uid]={"step":"bot_gateway_toggle"}
+        return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه درگاه را ارسال کنید."})
+
+    if data=="botadm:broadcast":
+        STATE[uid]={"step":"admin_broadcast"}
+        return tg("sendMessage",{"chat_id":chat_id,"text":"متن پیام همگانی را ارسال کنید.\nبرای لغو /cancel بزنید."})
+
+    if data=="botadm:settings":
+        return tg("sendMessage",{"chat_id":chat_id,"text":"⚙️ تنظیمات فروشگاه","reply_markup":settings_admin_keyboard()})
+    if data.startswith("botadm:setting:"):
+        key=data.split(":")[-1]
+        STATE[uid]={"step":"bot_setting_value","setting_key":key}
+        labels={
+          "shop_title":"نام جدید فروشگاه",
+          "support_text":"متن جدید پشتیبانی",
+          "announcement_text":"متن جدید اطلاع‌رسانی",
+          "agency_text":"متن جدید نمایندگی"
+        }
+        return tg("sendMessage",{"chat_id":chat_id,"text":labels.get(key,"مقدار جدید را ارسال کنید.")})
+
+    if data=="botadm:reports":
+        return tg("sendMessage",{"chat_id":chat_id,"text":admin_stats_text(),"reply_markup":admin_manage_keyboard()})
+    if data=="botadm:health":
+        return tg("sendMessage",{"chat_id":chat_id,"text":server_status_text(),"reply_markup":admin_manage_keyboard()})
+
 def admin_users_text():
     rows=admin_text_list("""SELECT telegram_id,username,full_name,wallet_balance
       FROM users ORDER BY created_at DESC LIMIT 20""")
@@ -706,7 +1098,7 @@ def show_usage_help(chat_id):
 def show_announcement(chat_id):
     return tg("sendMessage",{
       "chat_id":chat_id,
-      "text":"📣 موجودی جدید، تخفیف‌ها و تغییر قیمت سرویس‌ها از این بخش اطلاع‌رسانی می‌شود.",
+      "text":get_setting("announcement_text","📣 موجودی جدید، تخفیف‌ها و تغییر قیمت سرویس‌ها از این بخش اطلاع‌رسانی می‌شود."),
       "reply_markup":{"inline_keyboard":[
         [{"text":"🌐 مشاهده اطلاعیه‌های فروشگاه","url":PUBLIC_URL}],
         [{"text":"🏠 منوی اصلی","callback_data":"home"}]
@@ -819,7 +1211,7 @@ def handle_admin_menu(q):
         })
     tg("answerCallbackQuery",{"callback_query_id":q["id"]})
 
-    if data=="adm:menu": return send_admin_menu(chat_id)
+    if data=="adm:menu": return bot_admin_home(chat_id)
     if data=="adm:close":
         tg("sendMessage",{
           "chat_id":chat_id,
@@ -1069,6 +1461,7 @@ def handle_admin_menu(q):
 
 def handle_callback(q):
     chat_id=q["message"]["chat"]["id"]; data=q.get("data","")
+    if data.startswith("botadm:"): return handle_bot_admin_callback(q)
     if data.startswith("adm:"): return handle_admin_menu(q)
     tg("answerCallbackQuery",{"callback_query_id":q["id"]})
     if data=="home": return send_main(chat_id,q["from"]["id"])
@@ -1194,7 +1587,7 @@ def handle_message(msg):
         return send_main(chat_id,uid)
 
     if text in ("/admin","⚙️ مدیریت ai-shop") and admin_allowed(uid):
-        return send_admin_menu(chat_id)
+        return bot_admin_home(chat_id)
 
     if text=="/panelpass" and admin_allowed(uid):
         return send_panel_credentials(chat_id)
@@ -1414,6 +1807,223 @@ def handle_message(msg):
         if not row: return tg("sendMessage",{"chat_id":chat_id,"text":"کد تخفیف معتبر نیست. دوباره ارسال کنید یا /cancel بزنید."})
         s["discount_code"]=row["code"]; s["discount_amount"]=amount
         return send_checkout_confirmation(chat_id,uid)
+    if admin_allowed(uid) and s["step"]=="bot_product_title" and text:
+        s["title"]=text.strip(); s["step"]="bot_product_description"
+        return tg("sendMessage",{"chat_id":chat_id,"text":"توضیحات کامل محصول را ارسال کنید."})
+    if admin_allowed(uid) and s["step"]=="bot_product_description" and text:
+        s["description"]=text.strip(); s["step"]="bot_product_price"
+        return tg("sendMessage",{"chat_id":chat_id,"text":"قیمت محصول به ریال را فقط عددی ارسال کنید."})
+    if admin_allowed(uid) and s["step"]=="bot_product_price" and text:
+        try: s["price"]=safe_int(text)
+        except Exception: return tg("sendMessage",{"chat_id":chat_id,"text":"قیمت نامعتبر است؛ فقط عدد ارسال کنید."})
+        s["step"]="bot_product_duration"
+        return tg("sendMessage",{"chat_id":chat_id,"text":"مدت سرویس را ارسال کنید.\nمثال: یک‌ماهه"})
+    if admin_allowed(uid) and s["step"]=="bot_product_duration" and text:
+        s["duration"]=text.strip(); s["step"]="bot_product_delivery_mode"
+        return tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":"نوع تحویل را انتخاب کنید:",
+          "reply_markup":{"inline_keyboard":[[
+            {"text":"⚡ خودکار از موجودی","callback_data":"botadm:newproduct:auto"},
+            {"text":"👨‍💻 دستی","callback_data":"botadm:newproduct:manual"}
+          ]]}
+        })
+    if admin_allowed(uid) and s["step"]=="bot_product_delivery_text" and text:
+        conn=db(); cur=conn.cursor()
+        cur.execute("""
+          INSERT INTO products(title,description,price,delivery_text,duration_label,
+                               auto_delivery,stock_mode,active)
+          VALUES(%s,%s,%s,%s,%s,%s,%s,TRUE) RETURNING id
+        """,(s["title"],s["description"],s["price"],text,s["duration"],
+             s.get("auto_delivery",False),s.get("stock_mode","manual")))
+        pid=cur.fetchone()[0]; conn.commit(); cur.close(); conn.close()
+        STATE.pop(uid,None); audit("create_product","product",pid,s["title"])
+        return tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":f"✅ محصول #{pid} با موفقیت ساخته شد.",
+          "reply_markup":product_admin_keyboard()
+        })
+
+    if admin_allowed(uid) and s["step"]=="bot_product_toggle" and text:
+        try: pid=safe_int(text)
+        except Exception: return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه نامعتبر است."})
+        conn=db(); cur=conn.cursor()
+        cur.execute("UPDATE products SET active=NOT active WHERE id=%s RETURNING active,title",(pid,))
+        row=cur.fetchone(); conn.commit(); cur.close(); conn.close(); STATE.pop(uid,None)
+        if not row: return tg("sendMessage",{"chat_id":chat_id,"text":"محصول پیدا نشد."})
+        audit("toggle_product","product",pid,str(row[0]))
+        return tg("sendMessage",{"chat_id":chat_id,"text":f"✅ {row[1]} اکنون {'فعال' if row[0] else 'غیرفعال'} است.","reply_markup":product_admin_keyboard()})
+
+    if admin_allowed(uid) and s["step"]=="bot_product_delete" and text:
+        try: pid=safe_int(text)
+        except Exception: return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه نامعتبر است."})
+        conn=db(); cur=conn.cursor()
+        cur.execute("SELECT title FROM products WHERE id=%s",(pid,)); row=cur.fetchone()
+        if not row:
+            cur.close(); conn.close(); STATE.pop(uid,None)
+            return tg("sendMessage",{"chat_id":chat_id,"text":"محصول پیدا نشد."})
+        cur.execute("UPDATE products SET active=FALSE WHERE id=%s",(pid,))
+        conn.commit(); cur.close(); conn.close(); STATE.pop(uid,None)
+        audit("archive_product","product",pid,row[0])
+        return tg("sendMessage",{"chat_id":chat_id,"text":f"🗑 محصول «{row[0]}» غیرفعال و از فروش خارج شد.","reply_markup":product_admin_keyboard()})
+
+    if admin_allowed(uid) and s["step"]=="bot_category_title" and text:
+        s["title"]=text.strip(); s["step"]="bot_category_emoji"
+        return tg("sendMessage",{"chat_id":chat_id,"text":"ایموجی دسته‌بندی را ارسال کنید.\nمثال: 🤖"})
+    if admin_allowed(uid) and s["step"]=="bot_category_emoji" and text:
+        conn=db(); cur=conn.cursor()
+        cur.execute("INSERT INTO categories(title,emoji) VALUES(%s,%s) RETURNING id",(s["title"],text.strip()))
+        cid=cur.fetchone()[0]; conn.commit(); cur.close(); conn.close(); STATE.pop(uid,None)
+        audit("create_category","category",cid,s["title"])
+        return tg("sendMessage",{"chat_id":chat_id,"text":f"✅ دسته‌بندی #{cid} ساخته شد.","reply_markup":category_admin_keyboard()})
+    if admin_allowed(uid) and s["step"]=="bot_category_delete" and text:
+        try: cid=safe_int(text)
+        except Exception: return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه نامعتبر است."})
+        conn=db(); cur=conn.cursor()
+        cur.execute("UPDATE products SET category_id=NULL WHERE category_id=%s",(cid,))
+        cur.execute("DELETE FROM categories WHERE id=%s RETURNING title",(cid,))
+        row=cur.fetchone(); conn.commit(); cur.close(); conn.close(); STATE.pop(uid,None)
+        return tg("sendMessage",{"chat_id":chat_id,"text":"✅ دسته‌بندی حذف شد." if row else "دسته‌بندی پیدا نشد.","reply_markup":category_admin_keyboard()})
+
+    if admin_allowed(uid) and s["step"]=="bot_inventory_product" and text:
+        try: pid=safe_int(text)
+        except Exception: return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه نامعتبر است."})
+        conn=db(); cur=conn.cursor(); cur.execute("SELECT title FROM products WHERE id=%s",(pid,)); row=cur.fetchone(); cur.close(); conn.close()
+        if not row: return tg("sendMessage",{"chat_id":chat_id,"text":"محصول پیدا نشد."})
+        STATE[uid]={"step":"bot_inventory_payload","product_id":pid,"product_title":row[0]}
+        return tg("sendMessage",{"chat_id":chat_id,"text":"اطلاعات اکانت را ارسال کنید.\nمثال:\nEmail: ...\nPassword: ...\nRecovery: ..."})
+    if admin_allowed(uid) and s["step"]=="bot_inventory_payload" and text:
+        conn=db(); cur=conn.cursor()
+        cur.execute("INSERT INTO service_inventory(product_id,payload) VALUES(%s,%s) RETURNING id",(s["product_id"],text))
+        iid=cur.fetchone()[0]
+        cur.execute("UPDATE products SET auto_delivery=TRUE,stock_mode='inventory' WHERE id=%s",(s["product_id"],))
+        conn.commit(); cur.close(); conn.close(); STATE.pop(uid,None)
+        audit("add_inventory","inventory",iid,s["product_title"])
+        return tg("sendMessage",{"chat_id":chat_id,"text":f"✅ اکانت آماده با شناسه #{iid} اضافه شد.","reply_markup":inventory_admin_keyboard()})
+    if admin_allowed(uid) and s["step"]=="bot_inventory_delete" and text:
+        try: iid=safe_int(text)
+        except Exception: return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه نامعتبر است."})
+        conn=db(); cur=conn.cursor()
+        cur.execute("DELETE FROM service_inventory WHERE id=%s AND status='available' RETURNING id",(iid,))
+        row=cur.fetchone(); conn.commit(); cur.close(); conn.close(); STATE.pop(uid,None)
+        return tg("sendMessage",{"chat_id":chat_id,"text":"✅ موجودی حذف شد." if row else "موجودی آماده پیدا نشد.","reply_markup":inventory_admin_keyboard()})
+
+    if admin_allowed(uid) and s["step"]=="bot_order_approve" and text:
+        try: oid=safe_int(text)
+        except Exception: return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه نامعتبر است."})
+        STATE.pop(uid,None); ok,payload=deliver_order(oid)
+        return tg("sendMessage",{"chat_id":chat_id,"text":"✅ سفارش تأیید و تحویل شد." if ok else f"❌ {payload}","reply_markup":admin_manage_keyboard()})
+    if admin_allowed(uid) and s["step"]=="bot_order_reject" and text:
+        try: oid=safe_int(text)
+        except Exception: return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه نامعتبر است."})
+        conn=db(); cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("UPDATE orders SET status='rejected' WHERE id=%s RETURNING telegram_id",(oid,))
+        row=cur.fetchone(); conn.commit(); cur.close(); conn.close(); STATE.pop(uid,None)
+        if row: tg_safe("sendMessage",{"chat_id":row["telegram_id"],"text":f"❌ سفارش #{oid} توسط مدیریت رد شد."})
+        return tg("sendMessage",{"chat_id":chat_id,"text":"✅ سفارش رد شد." if row else "سفارش پیدا نشد.","reply_markup":admin_manage_keyboard()})
+
+    if admin_allowed(uid) and s["step"]=="bot_user_find" and text:
+        value=text.strip().lstrip("@")
+        conn=db(); cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        if value.isdigit():
+            cur.execute("SELECT * FROM users WHERE telegram_id=%s",(int(value),))
+        else:
+            cur.execute("SELECT * FROM users WHERE lower(username)=lower(%s)",(value,))
+        user=cur.fetchone(); cur.close(); conn.close(); STATE.pop(uid,None)
+        if not user: return tg("sendMessage",{"chat_id":chat_id,"text":"کاربر پیدا نشد.","reply_markup":admin_manage_keyboard()})
+        return tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":(
+            f"👤 اطلاعات کاربر\n\n"
+            f"ID: {user['telegram_id']}\n"
+            f"Username: @{user['username'] or '-'}\n"
+            f"نام: {user['full_name'] or user['first_name'] or '-'}\n"
+            f"تلفن: {user['phone'] or '-'}\n"
+            f"کیف پول: {money(user['wallet_balance'])}"
+          ),
+          "reply_markup":admin_manage_keyboard()
+        })
+
+    if admin_allowed(uid) and s["step"]=="bot_wallet_user" and text:
+        try: target=safe_int(text)
+        except Exception: return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه کاربر نامعتبر است."})
+        STATE[uid]={"step":"bot_wallet_amount","target_user":target,"wallet_mode":s["wallet_mode"]}
+        return tg("sendMessage",{"chat_id":chat_id,"text":"مبلغ را به ریال ارسال کنید."})
+    if admin_allowed(uid) and s["step"]=="bot_wallet_amount" and text:
+        try: amount=abs(safe_int(text))
+        except Exception: return tg("sendMessage",{"chat_id":chat_id,"text":"مبلغ نامعتبر است."})
+        signed=amount if s["wallet_mode"]=="add" else -amount
+        conn=db(); cur=conn.cursor()
+        cur.execute("UPDATE users SET wallet_balance=GREATEST(0,wallet_balance+%s) WHERE telegram_id=%s RETURNING wallet_balance",(signed,s["target_user"]))
+        row=cur.fetchone()
+        if row:
+            cur.execute("INSERT INTO wallet_transactions(telegram_id,amount,kind,description) VALUES(%s,%s,%s,%s)",
+                        (s["target_user"],signed,"admin_adjust","تغییر اعتبار توسط مدیر"))
+        conn.commit(); cur.close(); conn.close(); STATE.pop(uid,None)
+        if not row: return tg("sendMessage",{"chat_id":chat_id,"text":"کاربر پیدا نشد.","reply_markup":admin_manage_keyboard()})
+        tg_safe("sendMessage",{"chat_id":s["target_user"],"text":f"💰 کیف پول شما توسط مدیریت {money(signed)} تغییر کرد.\nموجودی جدید: {money(row[0])}"})
+        return tg("sendMessage",{"chat_id":chat_id,"text":f"✅ موجودی جدید کاربر: {money(row[0])}","reply_markup":admin_manage_keyboard()})
+
+    if admin_allowed(uid) and s["step"]=="bot_discount_code" and text:
+        STATE[uid]={"step":"bot_discount_percent","code":text.strip().upper()}
+        return tg("sendMessage",{"chat_id":chat_id,"text":"درصد تخفیف را بین ۰ تا ۱۰۰ ارسال کنید."})
+    if admin_allowed(uid) and s["step"]=="bot_discount_percent" and text:
+        try: percent=safe_int(text)
+        except Exception: return tg("sendMessage",{"chat_id":chat_id,"text":"درصد نامعتبر است."})
+        if percent<0 or percent>100: return tg("sendMessage",{"chat_id":chat_id,"text":"درصد باید بین ۰ تا ۱۰۰ باشد."})
+        conn=db(); cur=conn.cursor()
+        try:
+            cur.execute("INSERT INTO discount_codes(code,percent,active) VALUES(%s,%s,TRUE) RETURNING id",(s["code"],percent))
+            did=cur.fetchone()[0]; conn.commit()
+        except Exception:
+            conn.rollback(); cur.close(); conn.close()
+            return tg("sendMessage",{"chat_id":chat_id,"text":"این کد قبلاً ثبت شده است."})
+        cur.close(); conn.close(); STATE.pop(uid,None)
+        return tg("sendMessage",{"chat_id":chat_id,"text":f"✅ کد #{did} با تخفیف {percent}٪ ساخته شد.","reply_markup":discount_admin_keyboard()})
+    if admin_allowed(uid) and s["step"]=="bot_discount_toggle" and text:
+        try: did=safe_int(text)
+        except Exception: return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه نامعتبر است."})
+        conn=db(); cur=conn.cursor()
+        cur.execute("UPDATE discount_codes SET active=NOT active WHERE id=%s RETURNING code,active",(did,))
+        row=cur.fetchone(); conn.commit(); cur.close(); conn.close(); STATE.pop(uid,None)
+        return tg("sendMessage",{"chat_id":chat_id,"text":f"✅ {row[0]} اکنون {'فعال' if row[1] else 'غیرفعال'} است." if row else "کد پیدا نشد.","reply_markup":discount_admin_keyboard()})
+    if admin_allowed(uid) and s["step"]=="bot_discount_delete" and text:
+        try: did=safe_int(text)
+        except Exception: return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه نامعتبر است."})
+        conn=db(); cur=conn.cursor(); cur.execute("DELETE FROM discount_codes WHERE id=%s RETURNING code",(did,))
+        row=cur.fetchone(); conn.commit(); cur.close(); conn.close(); STATE.pop(uid,None)
+        return tg("sendMessage",{"chat_id":chat_id,"text":"✅ کد حذف شد." if row else "کد پیدا نشد.","reply_markup":discount_admin_keyboard()})
+
+    if admin_allowed(uid) and s["step"]=="bot_ticket_id" and text:
+        try: tid=safe_int(text)
+        except Exception: return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه نامعتبر است."})
+        STATE[uid]={"step":"bot_ticket_reply","ticket_id":tid}
+        return tg("sendMessage",{"chat_id":chat_id,"text":"متن پاسخ را ارسال کنید."})
+    if admin_allowed(uid) and s["step"]=="bot_ticket_reply" and text:
+        conn=db(); cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("UPDATE tickets SET admin_reply=%s,status='answered' WHERE id=%s RETURNING telegram_id,subject",(text,s["ticket_id"]))
+        row=cur.fetchone(); conn.commit(); cur.close(); conn.close(); STATE.pop(uid,None)
+        if row: tg_safe("sendMessage",{"chat_id":row["telegram_id"],"text":f"📨 پاسخ تیکت #{s['ticket_id']}\nموضوع: {row['subject']}\n\n{text}"})
+        return tg("sendMessage",{"chat_id":chat_id,"text":"✅ پاسخ ارسال شد." if row else "تیکت پیدا نشد.","reply_markup":admin_manage_keyboard()})
+    if admin_allowed(uid) and s["step"]=="bot_ticket_close" and text:
+        try: tid=safe_int(text)
+        except Exception: return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه نامعتبر است."})
+        conn=db(); cur=conn.cursor(); cur.execute("UPDATE tickets SET status='closed' WHERE id=%s RETURNING id",(tid,))
+        row=cur.fetchone(); conn.commit(); cur.close(); conn.close(); STATE.pop(uid,None)
+        return tg("sendMessage",{"chat_id":chat_id,"text":"✅ تیکت بسته شد." if row else "تیکت پیدا نشد.","reply_markup":admin_manage_keyboard()})
+
+    if admin_allowed(uid) and s["step"]=="bot_gateway_toggle" and text:
+        try: gid=safe_int(text)
+        except Exception: return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه نامعتبر است."})
+        conn=db(); cur=conn.cursor()
+        cur.execute("UPDATE payment_gateways SET enabled=NOT enabled WHERE id=%s RETURNING title,enabled",(gid,))
+        row=cur.fetchone(); conn.commit(); cur.close(); conn.close(); STATE.pop(uid,None)
+        return tg("sendMessage",{"chat_id":chat_id,"text":f"✅ {row[0]} اکنون {'فعال' if row[1] else 'غیرفعال'} است." if row else "درگاه پیدا نشد.","reply_markup":admin_manage_keyboard()})
+
+    if admin_allowed(uid) and s["step"]=="bot_setting_value" and text:
+        key=s["setting_key"]; set_setting_value(key,text.strip()); STATE.pop(uid,None)
+        return tg("sendMessage",{"chat_id":chat_id,"text":"✅ تنظیم ذخیره شد.","reply_markup":settings_admin_keyboard()})
+
     if admin_allowed(uid) and s["step"]=="admin_product_title" and text:
         STATE[uid]={"step":"admin_product_description","title":text}; return tg("sendMessage",{"chat_id":chat_id,"text":"توضیحات محصول را ارسال کنید."})
     if admin_allowed(uid) and s["step"]=="admin_product_description" and text:
@@ -1451,7 +2061,7 @@ def handle_message(msg):
         return tg_safe("sendMessage",{"chat_id":chat_id,"text":"رسید در دیتابیس ثبت شد و در انتظار بررسی است."})
 
 class Handler(BaseHTTPRequestHandler):
-    server_version="ai-shop/3.5.0"
+    server_version="ai-shop/4.0.0"
 
     def log_message(self, fmt, *args):
         print(f"{self.address_string()} - {fmt%args}")
