@@ -43,7 +43,7 @@ ADMIN_ID=os.getenv("ADMIN_TELEGRAM_ID","")
 ADMIN_USER=os.getenv("ADMIN_USERNAME","admin")
 ADMIN_PASS=os.getenv("ADMIN_PASSWORD","change-me")
 CURRENCY=os.getenv("CURRENCY","IRR")
-APP_VERSION="3.4.1"
+APP_VERSION="3.5.0"
 ADMIN_SESSION_TOKEN=secrets.token_urlsafe(36)
 
 ADMIN_OTP_TTL_SECONDS=300
@@ -397,12 +397,30 @@ def money(n):
 
 def main_keyboard(is_admin=False):
     rows=[
-      [{"text":"💎 خرید اکانت و سرویس","callback_data":"products"}],
-      [{"text":"✨ خرید ارزان‌تر","callback_data":"cheap_products"},{"text":"💳 کیف پول","callback_data":"wallet"}],
-      [{"text":"👤 حساب من","callback_data":"account"},{"text":"🧷 دعوت دوستان","callback_data":"referral"}],
-      [{"text":"📦 سفارش‌های من","callback_data":"orders"},{"text":"📨 پشتیبانی","callback_data":"ticket"}]
+      [{"text":"🚀 خرید اکانت هوش مصنوعی","callback_data":"products"}],
+      [
+        {"text":"📱 سرویس‌های من","callback_data":"my_services"},
+        {"text":"♻️ تمدید سرویس","callback_data":"renew_services"}
+      ],
+      [
+        {"text":"💡 آموزش استفاده","callback_data":"usage_help"},
+        {"text":"💰 اعتبار من","callback_data":"wallet"}
+      ],
+      [
+        {"text":"📣 کانال اطلاع‌رسانی","callback_data":"announcement"},
+        {"text":"🤝 درخواست نمایندگی","callback_data":"agency"}
+      ],
+      [
+        {"text":"🧑🏻‍💻 تماس با پشتیبانی","callback_data":"ticket"},
+        {"text":"👥 معرفی به دوستان","callback_data":"referral"}
+      ],
+      [
+        {"text":"👤 حساب کاربری","callback_data":"account"},
+        {"text":"📦 سفارش‌های من","callback_data":"orders"}
+      ]
     ]
-    if is_admin: rows.append([{"text":"⚙️ مدیریت ai-shop","callback_data":"adm:menu"}])
+    if is_admin:
+        rows.append([{"text":"📊 منوی مدیریت","callback_data":"adm:menu"}])
     return {"inline_keyboard":rows}
 
 def admin_keyboard():
@@ -463,24 +481,19 @@ def admin_back_keyboard():
 def admin_bottom_keyboard():
     return {
       "keyboard":[
-        [
-          {"text":"👥 بخش ادمین‌ها"},
-          {"text":"👨‍💼 مدیریت کاربران"}
-        ],
-        [{"text":"♻️ پیام همگانی"}],
-        [
-          {"text":"🎁 بخش تخفیفات"},
-          {"text":"🚦 بخش راهنماها"}
-        ],
-        [
-          {"text":"🔒 بخش جوین اجباری"},
-          {"text":"💳 بخش درگاه‌ها"}
-        ],
-        [
-          {"text":"🔐 رمز پنل وب"},
-          {"text":"🖥 پنل مدیریت وب"}
-        ],
-        [{"text":"⬅️ بازگشت"}]
+        [{"text":"📊 بخش گزارشات"},{"text":"⚡ اکانت فوری"}],
+        [{"text":"🔎 مشاهده اطلاعات کاربر"},{"text":"👤 خدمات کاربر"}],
+        [{"text":"⚙️ تأیید خودکار"},{"text":"🧾 رسیدهای تأییدنشده"}],
+        [{"text":"📡 وضعیت ربات"},{"text":"🔌 وضعیت پنل"}],
+        [{"text":"⚙️ سایر تنظیمات"}],
+        [{"text":"🛍 تنظیمات فروشگاه"},{"text":"🎁 تخفیف و هدیه"}],
+        [{"text":"🖥 تنظیمات پنل"},{"text":"📚 بخش آموزش"}],
+        [{"text":"✨ تنظیمات کاربر جدید"},{"text":"📣 تنظیم کانال اطلاع‌رسانی"}],
+        [{"text":"👩‍💼 تنظیمات همکار"},{"text":"👨‍💼 تنظیمات ادمین"}],
+        [{"text":"🤝 تنظیم درخواست نمایندگی"}],
+        [{"text":"💳 بخش درگاه‌ها"},{"text":"🔒 بخش جوین اجباری"}],
+        [{"text":"🔐 رمز پنل وب"},{"text":"🖥 پنل مدیریت وب"}],
+        [{"text":"⬅️ بازگشت به منوی اصلی"}]
       ],
       "resize_keyboard":True,
       "one_time_keyboard":False,
@@ -588,7 +601,16 @@ def server_status_text():
 
 def send_main(chat_id, uid=None):
     is_admin=str(uid or chat_id)==str(ADMIN_ID)
-    tg("sendMessage", {"chat_id":chat_id,"text":"✨ به AI-SHOP خوش آمدید.\nفروشگاه محصولات و خدمات هوش مصنوعی","reply_markup":main_keyboard(is_admin)})
+    tg("sendMessage",{
+      "chat_id":chat_id,
+      "text":(
+        "🌷 به فروشگاه ai-shop خوش آمدید!\n\n"
+        "فروش اکانت و اشتراک سرویس‌های هوش مصنوعی؛ "
+        "ChatGPT، Gemini، Claude، Midjourney و ابزارهای تولید محتوا.\n\n"
+        "از منوی زیر بخش موردنظر را انتخاب کنید:"
+      ),
+      "reply_markup":main_keyboard(is_admin)
+    })
 
 def send_admin_menu(chat_id):
     tg("sendMessage",{
@@ -607,6 +629,96 @@ def upsert_user(frm):
     """,(frm["id"],frm.get("username"),frm.get("first_name")))
     cur.execute("UPDATE users SET referral_code=COALESCE(referral_code,%s) WHERE telegram_id=%s",(f"AI{frm['id']}",frm['id']))
     conn.commit(); cur.close(); conn.close()
+
+def show_my_services(chat_id, telegram_id):
+    rows=admin_text_list("""
+      SELECT o.id,o.amount,p.title
+      FROM orders o
+      LEFT JOIN products p ON p.id=o.product_id
+      WHERE o.telegram_id=%s AND o.status='paid'
+      ORDER BY o.id DESC LIMIT 30
+    """,(telegram_id,))
+    if not rows:
+        return tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":"📱 هنوز سرویس فعالی ندارید.",
+          "reply_markup":{"inline_keyboard":[
+            [{"text":"🚀 خرید اکانت هوش مصنوعی","callback_data":"products"}],
+            [{"text":"🏠 منوی اصلی","callback_data":"home"}]
+          ]}
+        })
+    text="\n\n".join(
+      f"📦 سفارش #{r['id']}\n🤖 سرویس: {r['title'] or '-'}\n"
+      f"💰 مبلغ: {money(r['amount'])}\n✅ وضعیت: تحویل‌شده"
+      for r in rows
+    )
+    return tg("sendMessage",{
+      "chat_id":chat_id,
+      "text":"📱 سرویس‌های من\n\n"+text,
+      "reply_markup":{"inline_keyboard":[
+        [{"text":"♻️ تمدید یا خرید مجدد","callback_data":"renew_services"}],
+        [{"text":"🏠 منوی اصلی","callback_data":"home"}]
+      ]}
+    })
+
+def show_renew_services(chat_id, telegram_id):
+    rows=admin_text_list("""
+      SELECT DISTINCT ON (p.id) p.id,p.title,p.price
+      FROM orders o JOIN products p ON p.id=o.product_id
+      WHERE o.telegram_id=%s AND o.status='paid' AND p.active=true
+      ORDER BY p.id,o.id DESC
+    """,(telegram_id,))
+    if not rows:
+        return tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":"♻️ سرویس قابل تمدیدی پیدا نشد.",
+          "reply_markup":{"inline_keyboard":[
+            [{"text":"🚀 مشاهده محصولات","callback_data":"products"}],
+            [{"text":"🏠 منوی اصلی","callback_data":"home"}]
+          ]}
+        })
+    kb=[[{"text":f"♻️ {r['title']} — {money(r['price'])}",
+          "callback_data":f"product:{r['id']}"}] for r in rows]
+    kb.append([{"text":"🏠 منوی اصلی","callback_data":"home"}])
+    return tg("sendMessage",{
+      "chat_id":chat_id,
+      "text":"♻️ سرویس موردنظر را برای تمدید یا خرید مجدد انتخاب کنید:",
+      "reply_markup":{"inline_keyboard":kb}
+    })
+
+def show_usage_help(chat_id):
+    return tg("sendMessage",{
+      "chat_id":chat_id,
+      "text":(
+        "💡 آموزش استفاده\\n\\n"
+        "• پس از پرداخت و تأیید، اطلاعات اکانت برای شما ارسال می‌شود.\\n"
+        "• مشخصات ورود را در اختیار دیگران قرار ندهید.\\n"
+        "• قوانین هر محصول را پیش از خرید مطالعه کنید.\\n"
+        "• برای مشکل ورود یا فعال‌سازی، تیکت پشتیبانی ثبت کنید."
+      ),
+      "reply_markup":{"inline_keyboard":[
+        [{"text":"🚀 مشاهده محصولات","callback_data":"products"}],
+        [{"text":"🧑🏻‍💻 پشتیبانی","callback_data":"ticket"}],
+        [{"text":"🏠 منوی اصلی","callback_data":"home"}]
+      ]}
+    })
+
+def show_announcement(chat_id):
+    return tg("sendMessage",{
+      "chat_id":chat_id,
+      "text":"📣 موجودی جدید، تخفیف‌ها و تغییر قیمت سرویس‌ها از این بخش اطلاع‌رسانی می‌شود.",
+      "reply_markup":{"inline_keyboard":[
+        [{"text":"🌐 مشاهده اطلاعیه‌های فروشگاه","url":PUBLIC_URL}],
+        [{"text":"🏠 منوی اصلی","callback_data":"home"}]
+      ]}
+    })
+
+def start_agency_request(chat_id, uid):
+    STATE[uid]={"step":"agency_name"}
+    return tg("sendMessage",{
+      "chat_id":chat_id,
+      "text":"🤝 درخواست نمایندگی\\n\\nنام و نام خانوادگی خود را ارسال کنید."
+    })
 
 def show_products(chat_id):
     conn=db(); cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -960,6 +1072,11 @@ def handle_callback(q):
     if data.startswith("adm:"): return handle_admin_menu(q)
     tg("answerCallbackQuery",{"callback_query_id":q["id"]})
     if data=="home": return send_main(chat_id,q["from"]["id"])
+    if data=="my_services": return show_my_services(chat_id,q["from"]["id"])
+    if data=="renew_services": return show_renew_services(chat_id,q["from"]["id"])
+    if data=="usage_help": return show_usage_help(chat_id)
+    if data=="announcement": return show_announcement(chat_id)
+    if data=="agency": return start_agency_request(chat_id,q["from"]["id"])
     if data=="payment_info": return tg("sendMessage",{"chat_id":chat_id,"text":"💳 پرداخت آنلاین زرین‌پال و کارت‌به‌کارت در AI-SHOP فعال است."})
     if data=="help": return tg("sendMessage",{"chat_id":chat_id,"text":"راهنما: محصول را انتخاب کنید، روش پرداخت را بزنید و پس از پرداخت محصول تحویل می‌شود."})
     if data=="wallet":
@@ -1083,6 +1200,74 @@ def handle_message(msg):
         return send_panel_credentials(chat_id)
 
     if admin_allowed(uid):
+        if text=="📊 بخش گزارشات":
+            return tg("sendMessage",{"chat_id":chat_id,"text":admin_stats_text(),"reply_markup":admin_bottom_keyboard()})
+        if text=="⚡ اکانت فوری":
+            return tg("sendMessage",{
+              "chat_id":chat_id,
+              "text":"⚡ مدیریت موجودی اکانت‌های تحویل فوری",
+              "reply_markup":{"inline_keyboard":[[{"text":"مدیریت موجودی","url":f"{PUBLIC_URL}/admin#inventory"}]]}
+            })
+        if text=="🔎 مشاهده اطلاعات کاربر":
+            return tg("sendMessage",{
+              "chat_id":chat_id,
+              "text":"🔎 مشاهده و جستجوی اطلاعات کاربران از پنل مدیریت انجام می‌شود.",
+              "reply_markup":{"inline_keyboard":[[{"text":"مدیریت کاربران","url":f"{PUBLIC_URL}/admin#users"}]]}
+            })
+        if text=="👤 خدمات کاربر":
+            return tg("sendMessage",{
+              "chat_id":chat_id,
+              "text":"👤 مدیریت کیف پول، سفارش، سرویس و تیکت کاربران",
+              "reply_markup":{"inline_keyboard":[[{"text":"بازکردن پنل","url":f"{PUBLIC_URL}/admin"}]]}
+            })
+        if text=="⚙️ تأیید خودکار":
+            return tg("sendMessage",{
+              "chat_id":chat_id,
+              "text":"⚙️ پرداخت زرین‌پال پس از تأیید موفق می‌تواند سفارش را خودکار تحویل دهد.",
+              "reply_markup":{"inline_keyboard":[[{"text":"تنظیم تحویل محصولات","url":f"{PUBLIC_URL}/admin#products"}]]}
+            })
+        if text=="🧾 رسیدهای تأییدنشده":
+            rows=admin_text_list("""
+              SELECT id,telegram_id,amount,status FROM orders
+              WHERE receipt_file_id IS NOT NULL AND status IN ('pending','receipt_sent')
+              ORDER BY id DESC LIMIT 30
+            """)
+            body="\n".join(
+              f"#{r['id']} | {r['telegram_id']} | {money(r['amount'])} | {r['status']}"
+              for r in rows
+            ) or "رسید تأییدنشده‌ای وجود ندارد."
+            return tg("sendMessage",{
+              "chat_id":chat_id,
+              "text":"🧾 رسیدهای تأییدنشده\n\n"+body,
+              "reply_markup":{"inline_keyboard":[[{"text":"مشاهده در پنل","url":f"{PUBLIC_URL}/admin#orders"}]]}
+            })
+        if text=="📡 وضعیت ربات":
+            return tg("sendMessage",{"chat_id":chat_id,"text":server_status_text(),"reply_markup":admin_bottom_keyboard()})
+        if text=="🔌 وضعیت پنل":
+            return tg("sendMessage",{
+              "chat_id":chat_id,
+              "text":f"🔌 پنل مدیریت\n\nآدرس: {PUBLIC_URL}/admin\nنسخه: {APP_VERSION}",
+              "reply_markup":admin_bottom_keyboard()
+            })
+        if text in (
+          "⚙️ سایر تنظیمات","🛍 تنظیمات فروشگاه","🖥 تنظیمات پنل",
+          "📚 بخش آموزش","✨ تنظیمات کاربر جدید","📣 تنظیم کانال اطلاع‌رسانی",
+          "👩‍💼 تنظیمات همکار","👨‍💼 تنظیمات ادمین","🤝 تنظیم درخواست نمایندگی"
+        ):
+            return tg("sendMessage",{
+              "chat_id":chat_id,
+              "text":f"{text}\n\nاین بخش در تنظیمات پنل وب مدیریت می‌شود.",
+              "reply_markup":{"inline_keyboard":[[{"text":"بازکردن تنظیمات","url":f"{PUBLIC_URL}/admin#settings"}]]}
+            })
+        if text=="🎁 تخفیف و هدیه":
+            return tg("sendMessage",{
+              "chat_id":chat_id,
+              "text":admin_discounts_text(),
+              "reply_markup":{"inline_keyboard":[[{"text":"مدیریت تخفیف‌ها","url":f"{PUBLIC_URL}/admin#coupons"}]]}
+            })
+        if text=="⬅️ بازگشت به منوی اصلی":
+            tg("sendMessage",{"chat_id":chat_id,"text":"به منوی اصلی برگشتید.","reply_markup":remove_bottom_keyboard()})
+            return send_main(chat_id,uid)
         if text=="🔐 رمز پنل وب":
             return send_panel_credentials(chat_id)
 
@@ -1184,6 +1369,31 @@ def handle_message(msg):
 
     s=STATE.get(uid)
     if not s: return send_main(chat_id,uid)
+    if s["step"]=="agency_name" and text:
+        STATE[uid]={"step":"agency_contact","name":text}
+        return tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":"📱 شماره تماس یا آیدی تلگرام خود را ارسال کنید."
+        })
+    if s["step"]=="agency_contact" and text:
+        name=s.get("name","")
+        conn=db(); cur=conn.cursor()
+        cur.execute("""
+          INSERT INTO tickets(telegram_id,subject,body)
+          VALUES(%s,%s,%s) RETURNING id
+        """,(uid,"درخواست نمایندگی",f"نام: {name}\nراه ارتباطی: {text}"))
+        ticket_id=cur.fetchone()[0]
+        conn.commit(); cur.close(); conn.close()
+        STATE.pop(uid,None)
+        tg_safe("sendMessage",{
+          "chat_id":ADMIN_ID,
+          "text":f"🤝 درخواست نمایندگی جدید #{ticket_id}\nکاربر: {uid}\nنام: {name}\nراه ارتباطی: {text}"
+        })
+        return tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":f"✅ درخواست نمایندگی شما با شماره #{ticket_id} ثبت شد.",
+          "reply_markup":main_keyboard(admin_allowed(uid))
+        })
     if s["step"]=="ticket_subject" and text:
         STATE[uid]={"step":"ticket_body","subject":text}; return tg("sendMessage",{"chat_id":chat_id,"text":"متن تیکت را ارسال کنید."})
     if s["step"]=="ticket_body" and text:
@@ -1241,7 +1451,7 @@ def handle_message(msg):
         return tg_safe("sendMessage",{"chat_id":chat_id,"text":"رسید در دیتابیس ثبت شد و در انتظار بررسی است."})
 
 class Handler(BaseHTTPRequestHandler):
-    server_version="ai-shop/3.4.1"
+    server_version="ai-shop/3.5.0"
 
     def log_message(self, fmt, *args):
         print(f"{self.address_string()} - {fmt%args}")
