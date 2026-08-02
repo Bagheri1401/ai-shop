@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -u
-VERSION="2.2.0"
+VERSION="2.2.1"
+
 
 
 C_RESET="\033[0m"
@@ -15,7 +16,7 @@ C_WHITE="\033[38;5;255m"
 
 banner() {
   clear 2>/dev/null || true
-  printf "${C_CYAN}${C_BOLD}"
+  printf "%b" "${C_CYAN}${C_BOLD}"
   cat <<'BANNER'
 ╔════════════════════════════════════════════════════════════╗
 ║                                                            ║
@@ -25,45 +26,51 @@ banner() {
 ║                                                            ║
 ╚════════════════════════════════════════════════════════════╝
 BANNER
-  printf "${C_RESET}"
-  printf "\n${C_WHITE}${C_BOLD}  Professional Edition${C_RESET}"
-  printf "   ${C_GRAY}Version %s${C_RESET}\n\n" "$VERSION"
+  printf "%b" "${C_RESET}"
+  printf "\n%bProfessional Edition%b   %bVersion %s%b\n\n" \
+    "${C_WHITE}${C_BOLD}" "${C_RESET}" "${C_GRAY}" "$VERSION" "${C_RESET}"
+}
+
+line() {
+  printf "%b\n" "${C_BLUE}────────────────────────────────────────────────────────────${C_RESET}"
 }
 
 section() {
-  printf "\n${C_BLUE}${C_BOLD}┌─ %s${C_RESET}\n" "$1"
+  printf "\n%b┌─ %s%b\n" "${C_BLUE}${C_BOLD}" "$1" "${C_RESET}"
 }
 
 step() {
-  printf "${C_CYAN}${C_BOLD}│  [%s/%s]${C_RESET} %s\n" "$1" "$2" "$3"
+  printf "%b│  [%s/%s]%b %s\n" "${C_CYAN}${C_BOLD}" "$1" "$2" "${C_RESET}" "$3"
 }
 
 ok() {
-  printf "${C_GREEN}│  ✔${C_RESET} %s\n" "$1"
+  printf "%b│  ✔%b %s\n" "${C_GREEN}" "${C_RESET}" "$1"
 }
 
 warn() {
-  printf "${C_YELLOW}│  ⚠${C_RESET} %s\n" "$1"
+  printf "%b│  ⚠%b %s\n" "${C_YELLOW}" "${C_RESET}" "$1"
 }
 
 fail() {
-  printf "${C_RED}│  ✖${C_RESET} %s\n" "$1"
+  printf "%b│  ✖%b %s\n" "${C_RED}" "${C_RESET}" "$1" >&2
 }
 
 info() {
-  printf "${C_CYAN}│  ●${C_RESET} %s\n" "$1"
+  printf "%b│  ●%b %s\n" "${C_CYAN}" "${C_RESET}" "$1"
 }
 
 end_section() {
-  printf "${C_BLUE}${C_BOLD}└──────────────────────────────────────────────────────────${C_RESET}\n"
+  printf "%b\n" "${C_BLUE}└──────────────────────────────────────────────────────────${C_RESET}"
 }
 
 summary_box() {
-  printf "\n${C_GREEN}${C_BOLD}"
-  printf "╔════════════════════════════════════════════════════════════╗\n"
-  printf "║                    عملیات موفق بود                        ║\n"
-  printf "╚════════════════════════════════════════════════════════════╝\n"
-  printf "${C_RESET}"
+  printf "\n%b" "${C_GREEN}${C_BOLD}"
+  cat <<'SUMMARY'
+╔════════════════════════════════════════════════════════════╗
+║                    عملیات موفق بود                        ║
+╚════════════════════════════════════════════════════════════╝
+SUMMARY
+  printf "%b" "${C_RESET}"
 }
 
 banner
