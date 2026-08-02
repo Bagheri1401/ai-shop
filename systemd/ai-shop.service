@@ -1,0 +1,21 @@
+[Unit]
+Description=AI-SHOP
+After=network-online.target postgresql.service
+Wants=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=ai-shop
+Group=ai-shop
+WorkingDirectory=/opt/ai-shop
+ExecStart=/usr/bin/python3 /opt/ai-shop/app/main.py
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
