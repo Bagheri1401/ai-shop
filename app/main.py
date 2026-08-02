@@ -43,7 +43,7 @@ ADMIN_ID=os.getenv("ADMIN_TELEGRAM_ID","")
 ADMIN_USER=os.getenv("ADMIN_USERNAME","admin")
 ADMIN_PASS=os.getenv("ADMIN_PASSWORD","change-me")
 CURRENCY=os.getenv("CURRENCY","IRR")
-APP_VERSION="4.0.0"
+APP_VERSION="4.1.0"
 ADMIN_SESSION_TOKEN=secrets.token_urlsafe(36)
 
 ADMIN_OTP_TTL_SECONDS=300
@@ -307,9 +307,34 @@ def init_db():
     cur.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS receipt_data BYTEA")
     cur.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS receipt_mime TEXT")
     cur.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS receipt_size BIGINT NOT NULL DEFAULT 0")
+    cur.execute("ALTER TABLE payment_gateways ADD COLUMN IF NOT EXISTS gateway_type TEXT NOT NULL DEFAULT 'custom'")
+    cur.execute("ALTER TABLE payment_gateways ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'IRR'")
+    cur.execute("ALTER TABLE payment_gateways ADD COLUMN IF NOT EXISTS payment_url TEXT NOT NULL DEFAULT ''")
+    cur.execute("ALTER TABLE payment_gateways ADD COLUMN IF NOT EXISTS merchant_id TEXT NOT NULL DEFAULT ''")
+    cur.execute("ALTER TABLE payment_gateways ADD COLUMN IF NOT EXISTS api_key TEXT NOT NULL DEFAULT ''")
+    cur.execute("ALTER TABLE payment_gateways ADD COLUMN IF NOT EXISTS account_info TEXT NOT NULL DEFAULT ''")
+    cur.execute("ALTER TABLE payment_gateways ADD COLUMN IF NOT EXISTS instructions TEXT NOT NULL DEFAULT ''")
+    cur.execute("ALTER TABLE payment_gateways ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0")
+    cur.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS gateway_id BIGINT")
+    cur.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_status TEXT NOT NULL DEFAULT 'not_ready'")
+    cur.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_text TEXT NOT NULL DEFAULT ''")
+    cur.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivered_by BIGINT")
     cur.execute("INSERT INTO payment_gateways(code,title,enabled) VALUES('zarinpal','زرین‌پال',FALSE) ON CONFLICT(code) DO NOTHING")
     cur.execute("INSERT INTO payment_gateways(code,title,enabled) VALUES('card','کارت‌به‌کارت',TRUE) ON CONFLICT(code) DO NOTHING")
     cur.execute("INSERT INTO payment_gateways(code,title,enabled) VALUES('wallet','کیف پول',TRUE) ON CONFLICT(code) DO NOTHING")
+    cur.execute("""
+      INSERT INTO payment_gateways(code,title,enabled,gateway_type,currency,instructions,sort_order)
+      VALUES
+        ('idpay','آیدی‌پی',FALSE,'iranian_link','IRR','لینک پرداخت را مدیر تنظیم می‌کند.',30),
+        ('nextpay','نکست‌پی',FALSE,'iranian_link','IRR','لینک پرداخت را مدیر تنظیم می‌کند.',40),
+        ('payping','پی‌پینگ',FALSE,'iranian_link','IRR','لینک پرداخت را مدیر تنظیم می‌کند.',50),
+        ('zibal','زیبال',FALSE,'iranian_link','IRR','لینک پرداخت را مدیر تنظیم می‌کند.',60),
+        ('paypal','PayPal',FALSE,'foreign_link','USD','لینک پرداخت ارزی را مدیر تنظیم می‌کند.',70),
+        ('stripe','Stripe Payment Link',FALSE,'foreign_link','USD','لینک پرداخت ارزی را مدیر تنظیم می‌کند.',80),
+        ('perfectmoney','Perfect Money',FALSE,'foreign_manual','USD','پس از پرداخت شناسه تراکنش را ارسال کنید.',90),
+        ('usdt','USDT',FALSE,'crypto_manual','USDT','پس از انتقال هش تراکنش را ارسال کنید.',100)
+      ON CONFLICT(code) DO NOTHING
+    """)
     cur.execute("INSERT INTO app_settings(key,value) VALUES('shop_title','ai-shop') ON CONFLICT(key) DO NOTHING")
     cur.execute("INSERT INTO app_settings(key,value) VALUES('support_text','پشتیبانی فروشگاه') ON CONFLICT(key) DO NOTHING")
     cur.execute("INSERT INTO app_settings(key,value) VALUES('premium_emoji_welcome_id','') ON CONFLICT(key) DO NOTHING")
@@ -744,6 +769,14 @@ def handle_bot_admin_callback(q):
           "text":"متن تحویل یا پیام پس از خرید را ارسال کنید.\nبرای تحویل خودکار، بعداً از بخش موجودی اکانت اطلاعات واقعی اضافه کنید."
         })
 
+    if data.startswith("botadm:newgateway:"):
+        s=STATE.get(uid)
+        if not s or s.get("step")!="bot_gateway_type":
+            return tg("sendMessage",{"chat_id":chat_id,"text":"فرآیند تعریف درگاه منقضی شده است."})
+        s["gateway_type"]=data.split(":")[-1]
+        s["step"]="bot_gateway_currency"
+        return tg("sendMessage",{"chat_id":chat_id,"text":"واحد پول را ارسال کنید؛ مانند IRR، USD، EUR یا USDT."})
+
     if data=="botadm:home":
         return bot_admin_home(chat_id)
 
@@ -794,7 +827,8 @@ def handle_bot_admin_callback(q):
           "chat_id":chat_id,
           "text":"📦 آخرین سفارش‌ها\n\n"+list_orders_text(),
           "reply_markup":{"inline_keyboard":[
-            [{"text":"✅ تأیید و تحویل سفارش","callback_data":"botadm:order:approve"}],
+            [{"text":"✅ تأیید پرداخت","callback_data":"botadm:order:approve"}],
+            [{"text":"📨 تحویل دستی سرویس","callback_data":"botadm:order:deliver"}],
             [{"text":"❌ رد سفارش","callback_data":"botadm:order:reject"}],
             [{"text":"⬅️ بازگشت","callback_data":"botadm:home"}]
           ]}
@@ -802,6 +836,12 @@ def handle_bot_admin_callback(q):
     if data=="botadm:order:approve":
         STATE[uid]={"step":"bot_order_approve"}
         return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه سفارش را برای تأیید و تحویل ارسال کنید.\n\n"+list_orders_text()})
+    if data=="botadm:order:deliver":
+        STATE[uid]={"step":"bot_order_delivery_id"}
+        return tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":"شناسه سفارش پرداخت‌شده را ارسال کنید.\n\n"+list_orders_text()
+        })
     if data=="botadm:order:reject":
         STATE[uid]={"step":"bot_order_reject"}
         return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه سفارش را برای رد ارسال کنید.\n\n"+list_orders_text()})
@@ -900,19 +940,35 @@ def handle_bot_admin_callback(q):
         return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه تیکت را برای بستن ارسال کنید."})
 
     if data=="botadm:gateways":
-        rows=admin_text_list("SELECT id,code,title,enabled FROM payment_gateways ORDER BY id")
-        text="\n".join(f"#{r['id']} | {r['title']} | {'فعال' if r['enabled'] else 'غیرفعال'}" for r in rows)
         return tg("sendMessage",{
           "chat_id":chat_id,
-          "text":"💳 درگاه‌ها\n\n"+text,
+          "text":"💳 مدیریت درگاه‌ها\n\n"+payment_gateway_admin_text(),
           "reply_markup":{"inline_keyboard":[
-            [{"text":"🔄 تغییر وضعیت درگاه","callback_data":"botadm:gateway:toggle"}],
+            [{"text":"➕ تعریف روش پرداخت","callback_data":"botadm:gateway:add"}],
+            [{"text":"✏️ ویرایش درگاه","callback_data":"botadm:gateway:edit"}],
+            [{"text":"🔄 فعال/غیرفعال","callback_data":"botadm:gateway:toggle"}],
+            [{"text":"🗑 حذف درگاه سفارشی","callback_data":"botadm:gateway:delete"}],
             [{"text":"⬅️ بازگشت","callback_data":"botadm:home"}]
           ]}
         })
+    if data=="botadm:gateway:add":
+        STATE[uid]={"step":"bot_gateway_title"}
+        return tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":"نام روش پرداخت را ارسال کنید.\nمثال: کارت ملت، IDPay، PayPal، USDT TRC20"
+        })
+    if data=="botadm:gateway:edit":
+        STATE[uid]={"step":"bot_gateway_edit_id"}
+        return tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":"شناسه درگاه برای ویرایش را ارسال کنید.\n\n"+payment_gateway_admin_text()
+        })
     if data=="botadm:gateway:toggle":
         STATE[uid]={"step":"bot_gateway_toggle"}
-        return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه درگاه را ارسال کنید."})
+        return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه درگاه را ارسال کنید.\n\n"+payment_gateway_admin_text()})
+    if data=="botadm:gateway:delete":
+        STATE[uid]={"step":"bot_gateway_delete"}
+        return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه درگاه سفارشی را ارسال کنید."})
 
     if data=="botadm:broadcast":
         STATE[uid]={"step":"admin_broadcast"}
@@ -1110,6 +1166,68 @@ def start_agency_request(chat_id, uid):
     return tg("sendMessage",{
       "chat_id":chat_id,
       "text":"🤝 درخواست نمایندگی\\n\\nنام و نام خانوادگی خود را ارسال کنید."
+    })
+
+def payment_gateway_rows():
+    return admin_text_list("""
+      SELECT id,code,title,enabled,gateway_type,currency,payment_url,
+             account_info,instructions,sort_order
+      FROM payment_gateways
+      ORDER BY sort_order,id
+    """)
+
+def enabled_payment_keyboard():
+    rows=[]
+    for g in payment_gateway_rows():
+        if not g["enabled"]:
+            continue
+        if g["code"]=="wallet":
+            callback="checkout:pay:wallet"
+        elif g["code"]=="zarinpal":
+            callback="checkout:pay:zarinpal"
+        elif g["code"]=="card":
+            callback="checkout:pay:card"
+        else:
+            callback=f"checkout:gateway:{g['id']}"
+        rows.append([{
+          "text":f"💳 {g['title']} — {g['currency']}",
+          "callback_data":callback
+        }])
+    rows.append([{"text":"❌ لغو","callback_data":"checkout:cancel"}])
+    return {"inline_keyboard":rows}
+
+def payment_gateway_admin_text():
+    rows=payment_gateway_rows()
+    if not rows:
+        return "درگاهی ثبت نشده است."
+    return "\n\n".join(
+      f"#{g['id']} | {g['title']}\n"
+      f"نوع: {g['gateway_type']} | ارز: {g['currency']}\n"
+      f"{'✅ فعال' if g['enabled'] else '⛔ غیرفعال'}"
+      for g in rows
+    )
+
+def show_custom_gateway_payment(chat_id, order, product, gateway):
+    text=(
+      f"💳 پرداخت سفارش #{order['id']}\n\n"
+      f"🤖 محصول: {product['title']}\n"
+      f"💰 مبلغ سفارش: {money(order['amount'])}\n"
+      f"🏦 روش پرداخت: {gateway['title']}\n"
+      f"💱 واحد: {gateway['currency']}\n\n"
+    )
+    if gateway.get("account_info"):
+        text += f"اطلاعات پرداخت:\n{gateway['account_info']}\n\n"
+    if gateway.get("instructions"):
+        text += f"راهنما:\n{gateway['instructions']}\n"
+
+    keyboard=[]
+    if gateway.get("payment_url"):
+        keyboard.append([{"text":"🌐 بازکردن صفحه پرداخت","url":gateway["payment_url"]}])
+    keyboard.append([{"text":"🧾 ارسال رسید یا شناسه تراکنش","callback_data":f"customreceipt:{order['id']}"}])
+    return tg("sendMessage",{
+      "chat_id":chat_id,
+      "text":text,
+      "reply_markup":{"inline_keyboard":keyboard}
     })
 
 def show_products(chat_id):
@@ -1497,8 +1615,42 @@ def handle_callback(q):
         s=STATE.get(q["from"]["id"]);
         if not s: return send_main(chat_id,q["from"]["id"])
         s["step"]="payment_choice"
-        return tg("sendMessage",{"chat_id":chat_id,"text":"روش پرداخت را انتخاب کنید:","reply_markup":{"inline_keyboard":[[{"text":"💳 زرین‌پال","callback_data":"checkout:pay:zarinpal"}],[{"text":"🏦 کارت‌به‌کارت","callback_data":"checkout:pay:card"}],[{"text":"💰 کیف پول","callback_data":"checkout:pay:wallet"}],[{"text":"❌ لغو","callback_data":"checkout:cancel"}]]}})
+        return tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":"روش پرداخت را انتخاب کنید:",
+          "reply_markup":enabled_payment_keyboard()
+        })
     if data=="checkout:cancel": STATE.pop(q["from"]["id"],None); return send_main(chat_id,q["from"]["id"])
+    if data.startswith("checkout:gateway:"):
+        gateway_id=int(data.split(":")[2])
+        s=STATE.get(q["from"]["id"])
+        if not s:
+            return send_main(chat_id,q["from"]["id"])
+        conn=db(); cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT * FROM payment_gateways WHERE id=%s AND enabled=TRUE",(gateway_id,))
+        gateway=cur.fetchone(); cur.close(); conn.close()
+        if not gateway:
+            return tg("sendMessage",{"chat_id":chat_id,"text":"این درگاه فعال نیست."})
+        method=f"gateway:{gateway_id}"
+        o,p=create_order(
+          q["from"]["id"],s["product_id"],method,
+          s.get("name",""),s.get("phone",""),
+          s.get("discount_code",""),s.get("discount_amount",0)
+        )
+        conn=db(); cur=conn.cursor()
+        cur.execute("UPDATE orders SET gateway_id=%s WHERE id=%s",(gateway_id,o["id"]))
+        conn.commit(); cur.close(); conn.close()
+        STATE[q["from"]["id"]]={"step":"card_receipt","order_id":o["id"]}
+        return show_custom_gateway_payment(chat_id,o,p,gateway)
+
+    if data.startswith("customreceipt:"):
+        oid=int(data.split(":")[1])
+        STATE[q["from"]["id"]]={"step":"card_receipt","order_id":oid}
+        return tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":"🧾 تصویر رسید، شناسه تراکنش یا هش پرداخت را ارسال کنید."
+        })
+
     if data.startswith("checkout:pay:"):
         method=data.split(":")[2]; s=STATE.get(q["from"]["id"]);
         if not s: return send_main(chat_id,q["from"]["id"])
@@ -1911,8 +2063,98 @@ def handle_message(msg):
     if admin_allowed(uid) and s["step"]=="bot_order_approve" and text:
         try: oid=safe_int(text)
         except Exception: return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه نامعتبر است."})
-        STATE.pop(uid,None); ok,payload=deliver_order(oid)
-        return tg("sendMessage",{"chat_id":chat_id,"text":"✅ سفارش تأیید و تحویل شد." if ok else f"❌ {payload}","reply_markup":admin_manage_keyboard()})
+        conn=db(); cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+          SELECT o.id,o.telegram_id,p.title,p.auto_delivery,p.stock_mode
+          FROM orders o LEFT JOIN products p ON p.id=o.product_id
+          WHERE o.id=%s
+        """,(oid,))
+        order=cur.fetchone()
+        if not order:
+            cur.close(); conn.close(); STATE.pop(uid,None)
+            return tg("sendMessage",{"chat_id":chat_id,"text":"سفارش پیدا نشد."})
+        cur.execute("""
+          UPDATE orders SET status='paid',paid_at=COALESCE(paid_at,NOW()),
+                            delivery_status='awaiting_admin'
+          WHERE id=%s
+        """,(oid,))
+        conn.commit(); cur.close(); conn.close(); STATE.pop(uid,None)
+        tg_safe("sendMessage",{
+          "chat_id":order["telegram_id"],
+          "text":(
+            f"✅ پرداخت سفارش #{oid} تأیید شد.\n"
+            f"🤖 سرویس: {order['title'] or '-'}\n\n"
+            "سفارش در حال آماده‌سازی و تحویل است."
+          )
+        })
+        if order.get("auto_delivery") and order.get("stock_mode")=="inventory":
+            ok,payload=deliver_order(oid)
+            if ok:
+                return tg("sendMessage",{
+                  "chat_id":chat_id,
+                  "text":"✅ پرداخت تأیید و اکانت آماده خودکار تحویل شد.",
+                  "reply_markup":admin_manage_keyboard()
+                })
+        return tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":"✅ پرداخت تأیید شد. اکنون از گزینه «تحویل دستی سرویس» اطلاعات سرویس را ارسال کنید.",
+          "reply_markup":admin_manage_keyboard()
+        })
+
+    if admin_allowed(uid) and s["step"]=="bot_order_delivery_id" and text:
+        try: oid=safe_int(text)
+        except Exception: return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه نامعتبر است."})
+        conn=db(); cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+          SELECT o.id,o.telegram_id,o.status,p.title
+          FROM orders o LEFT JOIN products p ON p.id=o.product_id
+          WHERE o.id=%s
+        """,(oid,))
+        order=cur.fetchone(); cur.close(); conn.close()
+        if not order:
+            return tg("sendMessage",{"chat_id":chat_id,"text":"سفارش پیدا نشد."})
+        if order["status"]!="paid":
+            return tg("sendMessage",{"chat_id":chat_id,"text":"ابتدا پرداخت سفارش را تأیید کنید."})
+        STATE[uid]={
+          "step":"bot_order_delivery_text",
+          "order_id":oid,
+          "customer_id":order["telegram_id"],
+          "product_title":order["title"] or "-"
+        }
+        return tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":(
+            f"متن تحویل سفارش #{oid} را ارسال کنید.\n\n"
+            "ایمیل، رمز، لینک، کد لایسنس و راهنمای استفاده را می‌توانید در یک پیام بفرستید."
+          )
+        })
+
+    if admin_allowed(uid) and s["step"]=="bot_order_delivery_text" and text:
+        oid=s["order_id"]; customer=s["customer_id"]; title=s["product_title"]
+        delivery=text.strip()
+        conn=db(); cur=conn.cursor()
+        cur.execute("""
+          UPDATE orders SET delivery_text=%s,delivery_payload=%s,
+                            delivery_status='delivered',
+                            delivered_at=NOW(),delivered_by=%s,status='paid'
+          WHERE id=%s
+        """,(delivery,delivery,uid,oid))
+        conn.commit(); cur.close(); conn.close(); STATE.pop(uid,None)
+        tg_safe("sendMessage",{
+          "chat_id":customer,
+          "text":(
+            f"🎉 سفارش #{oid} تحویل شد\n"
+            f"🤖 سرویس: {title}\n\n"
+            f"🔐 اطلاعات تحویل:\n{delivery}\n\n"
+            "اطلاعات را در محل امن نگهداری کنید."
+          )
+        })
+        audit("manual_delivery","order",oid,f"by {uid}")
+        return tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":"✅ اطلاعات سرویس برای کاربر ارسال و سفارش تحویل‌شده ثبت شد.",
+          "reply_markup":admin_manage_keyboard()
+        })
     if admin_allowed(uid) and s["step"]=="bot_order_reject" and text:
         try: oid=safe_int(text)
         except Exception: return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه نامعتبر است."})
@@ -2012,6 +2254,98 @@ def handle_message(msg):
         row=cur.fetchone(); conn.commit(); cur.close(); conn.close(); STATE.pop(uid,None)
         return tg("sendMessage",{"chat_id":chat_id,"text":"✅ تیکت بسته شد." if row else "تیکت پیدا نشد.","reply_markup":admin_manage_keyboard()})
 
+    if admin_allowed(uid) and s["step"]=="bot_gateway_title" and text:
+        s["title"]=text.strip()
+        s["step"]="bot_gateway_type"
+        return tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":"نوع روش پرداخت را انتخاب کنید:",
+          "reply_markup":{"inline_keyboard":[
+            [{"text":"💳 کارت‌به‌کارت","callback_data":"botadm:newgateway:manual_card"}],
+            [{"text":"🇮🇷 درگاه ایرانی/لینکی","callback_data":"botadm:newgateway:iranian_link"}],
+            [{"text":"🌍 لینک پرداخت ارزی","callback_data":"botadm:newgateway:foreign_link"}],
+            [{"text":"💵 پرداخت ارزی دستی","callback_data":"botadm:newgateway:foreign_manual"}],
+            [{"text":"₿ رمزارز","callback_data":"botadm:newgateway:crypto_manual"}]
+          ]}
+        })
+    if admin_allowed(uid) and s["step"]=="bot_gateway_currency" and text:
+        s["currency"]=text.strip().upper()
+        s["step"]="bot_gateway_account"
+        return tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":"اطلاعات حساب، شماره کارت، کیف پول یا Merchant ID را ارسال کنید."
+        })
+    if admin_allowed(uid) and s["step"]=="bot_gateway_account" and text:
+        s["account_info"]=text.strip()
+        s["step"]="bot_gateway_url"
+        return tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":"لینک پرداخت را ارسال کنید. اگر لینک ندارد، علامت - بفرستید."
+        })
+    if admin_allowed(uid) and s["step"]=="bot_gateway_url" and text:
+        s["payment_url"]="" if text.strip()=="-" else text.strip()
+        s["step"]="bot_gateway_instructions"
+        return tg("sendMessage",{"chat_id":chat_id,"text":"راهنمای پرداخت برای کاربر را ارسال کنید."})
+    if admin_allowed(uid) and s["step"]=="bot_gateway_instructions" and text:
+        gateway_code="custom_"+secrets.token_hex(5)
+        conn=db(); cur=conn.cursor()
+        cur.execute("""
+          INSERT INTO payment_gateways(
+            code,title,enabled,gateway_type,currency,payment_url,
+            account_info,instructions,sort_order
+          ) VALUES(%s,%s,TRUE,%s,%s,%s,%s,%s,999)
+          RETURNING id
+        """,(gateway_code,s["title"],s["gateway_type"],s["currency"],
+             s["payment_url"],s["account_info"],text.strip()))
+        gid=cur.fetchone()[0]
+        conn.commit(); cur.close(); conn.close(); STATE.pop(uid,None)
+        audit("create_gateway","gateway",gid,s["title"])
+        return tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":f"✅ روش پرداخت «{s['title']}» با شناسه #{gid} ساخته و فعال شد.",
+          "reply_markup":admin_manage_keyboard()
+        })
+    if admin_allowed(uid) and s["step"]=="bot_gateway_edit_id" and text:
+        try: gid=safe_int(text)
+        except Exception: return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه نامعتبر است."})
+        conn=db(); cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT * FROM payment_gateways WHERE id=%s",(gid,))
+        row=cur.fetchone(); cur.close(); conn.close()
+        if not row:
+            return tg("sendMessage",{"chat_id":chat_id,"text":"درگاه پیدا نشد."})
+        STATE[uid]={"step":"bot_gateway_edit_value","gateway_id":gid}
+        return tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":(
+            "اطلاعات جدید را در چهار خط ارسال کنید:\n"
+            "نام درگاه\nواحد پول\nلینک پرداخت یا -\nراهنمای پرداخت"
+          )
+        })
+    if admin_allowed(uid) and s["step"]=="bot_gateway_edit_value" and text:
+        parts=[x.strip() for x in text.splitlines()]
+        if len(parts)<4:
+            return tg("sendMessage",{"chat_id":chat_id,"text":"حداقل چهار خط لازم است."})
+        conn=db(); cur=conn.cursor()
+        cur.execute("""
+          UPDATE payment_gateways
+          SET title=%s,currency=%s,payment_url=%s,instructions=%s
+          WHERE id=%s
+        """,(parts[0],parts[1].upper(),"" if parts[2]=="-" else parts[2],
+             "\n".join(parts[3:]),s["gateway_id"]))
+        conn.commit(); cur.close(); conn.close(); STATE.pop(uid,None)
+        return tg("sendMessage",{"chat_id":chat_id,"text":"✅ درگاه ویرایش شد.","reply_markup":admin_manage_keyboard()})
+    if admin_allowed(uid) and s["step"]=="bot_gateway_delete" and text:
+        try: gid=safe_int(text)
+        except Exception: return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه نامعتبر است."})
+        conn=db(); cur=conn.cursor()
+        cur.execute("DELETE FROM payment_gateways WHERE id=%s AND code LIKE 'custom_%%' RETURNING title",(gid,))
+        row=cur.fetchone(); conn.commit(); cur.close(); conn.close(); STATE.pop(uid,None)
+        return tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":"✅ درگاه سفارشی حذف شد." if row else "درگاه سیستمی حذف نمی‌شود؛ آن را غیرفعال کنید.",
+          "reply_markup":admin_manage_keyboard()
+        })
+
     if admin_allowed(uid) and s["step"]=="bot_gateway_toggle" and text:
         try: gid=safe_int(text)
         except Exception: return tg("sendMessage",{"chat_id":chat_id,"text":"شناسه نامعتبر است."})
@@ -2061,7 +2395,7 @@ def handle_message(msg):
         return tg_safe("sendMessage",{"chat_id":chat_id,"text":"رسید در دیتابیس ثبت شد و در انتظار بررسی است."})
 
 class Handler(BaseHTTPRequestHandler):
-    server_version="ai-shop/4.0.0"
+    server_version="ai-shop/4.1.0"
 
     def log_message(self, fmt, *args):
         print(f"{self.address_string()} - {fmt%args}")
