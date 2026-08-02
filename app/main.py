@@ -43,7 +43,7 @@ ADMIN_ID=os.getenv("ADMIN_TELEGRAM_ID","")
 ADMIN_USER=os.getenv("ADMIN_USERNAME","admin")
 ADMIN_PASS=os.getenv("ADMIN_PASSWORD","change-me")
 CURRENCY=os.getenv("CURRENCY","IRR")
-APP_VERSION="4.2.0"
+APP_VERSION="4.2.1"
 ADMIN_SESSION_TOKEN=secrets.token_urlsafe(36)
 
 ADMIN_OTP_TTL_SECONDS=300
@@ -308,7 +308,6 @@ def init_db():
     cur.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS receipt_mime TEXT")
     cur.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS receipt_size BIGINT NOT NULL DEFAULT 0")
     cur.execute("ALTER TABLE categories ADD COLUMN IF NOT EXISTS custom_emoji_id TEXT NOT NULL DEFAULT ''")
-    cur.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS custom_emoji_id TEXT NOT NULL DEFAULT ''")
     cur.execute("ALTER TABLE payment_gateways ADD COLUMN IF NOT EXISTS gateway_type TEXT NOT NULL DEFAULT 'custom'")
     cur.execute("ALTER TABLE payment_gateways ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'IRR'")
     cur.execute("ALTER TABLE payment_gateways ADD COLUMN IF NOT EXISTS payment_url TEXT NOT NULL DEFAULT ''")
@@ -682,14 +681,9 @@ def list_products_text():
     )
 
 def list_categories_text():
-    rows=admin_text_list("""
-      SELECT id,title,emoji,custom_emoji_id,active
-      FROM categories ORDER BY sort_order,id
-    """)
+    rows=admin_text_list("SELECT id,title,emoji,active FROM categories ORDER BY sort_order,id")
     return "\n".join(
-      f"#{r['id']} | {r['emoji'] or '⭐'} {r['title']} | "
-      f"{'پریمیوم ✅' if r['custom_emoji_id'] else 'معمولی'} | "
-      f"{'فعال' if r['active'] else 'غیرفعال'}"
+      f"#{r['id']} | {r['emoji']} {r['title']} | {'فعال' if r['active'] else 'غیرفعال'}"
       for r in rows
     ) or "دسته‌بندی‌ای ثبت نشده است."
 
@@ -754,7 +748,8 @@ def safe_int(value):
 
 def normalize_phone(value):
     raw=str(value or "").strip()
-    raw=raw.replace(" ","").replace("-","").replace("(","").replace(")","")
+    for ch in (" ","-","(",")"):
+        raw=raw.replace(ch,"")
     if raw.startswith("00"):
         raw="+"+raw[2:]
     if raw.startswith("09") and len(raw)==11:
@@ -770,9 +765,9 @@ def normalize_phone(value):
 def contact_phone_from_message(message, expected_user_id):
     contact=(message or {}).get("contact") or {}
     phone=normalize_phone(contact.get("phone_number"))
-    contact_user_id=contact.get("user_id")
     if not phone:
         return None
+    contact_user_id=contact.get("user_id")
     if contact_user_id is not None and int(contact_user_id)!=int(expected_user_id):
         return None
     return phone
@@ -790,18 +785,11 @@ def request_phone_keyboard():
         [{"text":"❌ لغو خرید"}]
       ],
       "resize_keyboard":True,
-      "one_time_keyboard":True,
-      "input_field_placeholder":"شماره را با دکمه ارسال کنید"
+      "one_time_keyboard":True
     }
 
 def remove_reply_keyboard():
     return {"remove_keyboard":True}
-
-def button_with_premium_emoji(text,callback_data="",custom_emoji_id=""):
-    button={"text":text,"callback_data":callback_data}
-    if custom_emoji_id:
-        button["icon_custom_emoji_id"]=str(custom_emoji_id)
-    return button
 
 def handle_bot_admin_callback(q):
     chat_id=q["message"]["chat"]["id"]
@@ -2022,12 +2010,25 @@ def handle_message(msg):
               "text":"❌ شماره معتبر نیست. دکمه «ارسال شماره من» را بزنید یا شماره را مانند 09121234567 وارد کنید.",
               "reply_markup":request_phone_keyboard()
             })
-        s["phone"]=phone; s["step"]="checkout_discount_question"
+        s["phone"]=phone
+        s["step"]="checkout_discount_question"
         conn=db(); cur=conn.cursor()
         cur.execute("UPDATE users SET full_name=%s,phone=%s WHERE telegram_id=%s",(s["name"],phone,uid))
         conn.commit(); cur.close(); conn.close()
-        tg("sendMessage",{"chat_id":chat_id,"text":f"✅ شماره {phone} ثبت شد.","reply_markup":remove_reply_keyboard()})
-        return tg("sendMessage",{"chat_id":chat_id,"text":"🎟 کد تخفیف دارید؟","reply_markup":{"inline_keyboard":[[{"text":"✅ بله","callback_data":"checkout:discount:yes"},{"text":"❌ خیر","callback_data":"checkout:discount:no"}],[{"text":"🏠 منوی اصلی","callback_data":"home"}]]}})
+        tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":f"✅ شماره {phone} ثبت شد.",
+          "reply_markup":remove_reply_keyboard()
+        })
+        return tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":"🎟 کد تخفیف دارید؟",
+          "reply_markup":{"inline_keyboard":[
+            [{"text":"✅ بله","callback_data":"checkout:discount:yes"},
+             {"text":"❌ خیر","callback_data":"checkout:discount:no"}],
+            [{"text":"🏠 منوی اصلی","callback_data":"home"}]
+          ]}
+        })
     if s["step"]=="checkout_discount" and text:
         conn=db(); cur=conn.cursor(); cur.execute("SELECT price FROM products WHERE id=%s",(s["product_id"],)); price=cur.fetchone()[0]; cur.close(); conn.close()
         row,amount=discount_for(text.strip(),price)
@@ -2098,32 +2099,26 @@ def handle_message(msg):
         s["title"]=text.strip(); s["step"]="bot_category_emoji"
         return tg("sendMessage",{
           "chat_id":chat_id,
-          "text":(
-            "ایموجی دسته‌بندی را ارسال کنید.\n\n"
-            "• ایموجی معمولی مثل 🤖\n"
-            "• ایموجی پریمیوم را مستقیم از تلگرام ارسال کنید\n"
-            "• یا custom_emoji_id را وارد کنید"
-          )
+          "text":"ایموجی معمولی یا پریمیوم دسته‌بندی را ارسال کنید. همچنین می‌توانید custom_emoji_id را بفرستید."
         })
     if admin_allowed(uid) and s["step"]=="bot_category_emoji":
         custom_emoji_id=extract_custom_emoji_id(msg)
-        emoji_text=text.strip() if text else "⭐"
-        if not custom_emoji_id and text and re.fullmatch(r"[0-9]{8,32}",text.strip()):
-            custom_emoji_id=text.strip()
+        emoji_text=(text or "⭐").strip() or "⭐"
+        if not custom_emoji_id and re.fullmatch(r"[0-9]{8,32}",emoji_text):
+            custom_emoji_id=emoji_text
             emoji_text="⭐"
-        if not custom_emoji_id and not emoji_text:
-            return tg("sendMessage",{"chat_id":chat_id,"text":"ایموجی دریافت نشد؛ دوباره ارسال کنید."})
         conn=db(); cur=conn.cursor()
         cur.execute("""
           INSERT INTO categories(title,emoji,custom_emoji_id)
           VALUES(%s,%s,%s) RETURNING id
         """,(s["title"],emoji_text[:16],custom_emoji_id))
-        cid=cur.fetchone()[0]; conn.commit(); cur.close(); conn.close(); STATE.pop(uid,None)
+        cid=cur.fetchone()[0]
+        conn.commit(); cur.close(); conn.close()
+        STATE.pop(uid,None)
         audit("create_category","category",cid,s["title"])
-        suffix=f" | custom_emoji_id: {custom_emoji_id}" if custom_emoji_id else ""
         return tg("sendMessage",{
           "chat_id":chat_id,
-          "text":f"✅ دسته‌بندی #{cid} ساخته شد{suffix}",
+          "text":f"✅ دسته‌بندی #{cid} ساخته شد.",
           "reply_markup":category_admin_keyboard()
         })
     if admin_allowed(uid) and s["step"]=="bot_category_delete" and text:
@@ -2493,7 +2488,7 @@ def handle_message(msg):
         return tg_safe("sendMessage",{"chat_id":chat_id,"text":"رسید در دیتابیس ثبت شد و در انتظار بررسی است."})
 
 class Handler(BaseHTTPRequestHandler):
-    server_version="ai-shop/4.2.0"
+    server_version="ai-shop/4.2.1"
 
     def log_message(self, fmt, *args):
         print(f"{self.address_string()} - {fmt%args}")
