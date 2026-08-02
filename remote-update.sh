@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-VERSION="3.1.0"
+VERSION="3.2.0"
 
 
 

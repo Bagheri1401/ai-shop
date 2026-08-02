@@ -9,6 +9,7 @@ import urllib.error
 import csv
 import shutil
 import subprocess
+import secrets
 import io
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from http.cookies import SimpleCookie
@@ -40,7 +41,8 @@ ADMIN_ID=os.getenv("ADMIN_TELEGRAM_ID","")
 ADMIN_USER=os.getenv("ADMIN_USERNAME","admin")
 ADMIN_PASS=os.getenv("ADMIN_PASSWORD","change-me")
 CURRENCY=os.getenv("CURRENCY","IRR")
-APP_VERSION="3.1.0"
+APP_VERSION="3.2.0"
+ADMIN_SESSION_TOKEN=secrets.token_urlsafe(36)
 
 def db():
     return psycopg2.connect(
@@ -397,17 +399,27 @@ def remove_bottom_keyboard():
     return {"remove_keyboard":True}
 
 def send_panel_credentials(chat_id):
-    text=(
-      "🔐 اطلاعات ورود پنل مدیریت\n\n"
-      f"🌐 آدرس: {PUBLIC_URL}/admin\n"
-      f"👤 نام کاربری: {ADMIN_USER}\n"
-      f"🔑 رمز عبور: {ADMIN_PASS}\n\n"
-      "⚠️ این پیام محرمانه است و فقط برای مدیر ربات نمایش داده شده."
-    )
+    safe_user=html.escape(str(ADMIN_USER))
+    safe_pass=html.escape(str(ADMIN_PASS))
+    safe_url=html.escape(f"{PUBLIC_URL}/admin")
+    tg("sendMessage",{
+      "chat_id":chat_id,
+      "text":(
+        "🔐 <b>اطلاعات ورود پنل مدیریت</b>\n\n"
+        f"🌐 آدرس پنل:\n<code>{safe_url}</code>\n\n"
+        f"👤 نام کاربری:\n<code>{safe_user}</code>\n\n"
+        "🔑 رمز عبور در پیام بعدی به‌صورت جداگانه ارسال می‌شود تا راحت کپی شود."
+      ),
+      "parse_mode":"HTML",
+      "disable_web_page_preview":True,
+      "reply_markup":{"inline_keyboard":[
+        [{"text":"🖥 بازکردن صفحه ورود","url":f"{PUBLIC_URL}/admin/login"}]
+      ]}
+    })
     return tg("sendMessage",{
       "chat_id":chat_id,
-      "text":text,
-      "protect_content":True,
+      "text":f"<code>{safe_pass}</code>",
+      "parse_mode":"HTML",
       "reply_markup":admin_bottom_keyboard()
     })
 
@@ -1121,7 +1133,7 @@ def handle_message(msg):
         return tg_safe("sendMessage",{"chat_id":chat_id,"text":"رسید در دیتابیس ثبت شد و در انتظار بررسی است."})
 
 class Handler(BaseHTTPRequestHandler):
-    server_version="ai-shop/3.1.0"
+    server_version="ai-shop/3.2.0"
 
     def log_message(self, fmt, *args):
         print(f"{self.address_string()} - {fmt%args}")
@@ -1142,21 +1154,97 @@ class Handler(BaseHTTPRequestHandler):
         return self.rfile.read(length) if length else b""
 
     def admin_ok(self):
+        cookie_header=self.headers.get("Cookie","")
+        if cookie_header:
+            try:
+                cookie=SimpleCookie()
+                cookie.load(cookie_header)
+                token=cookie.get("ai_shop_admin")
+                if token and secrets.compare_digest(token.value,ADMIN_SESSION_TOKEN):
+                    return True
+            except Exception:
+                pass
+
+        # Backward-compatible Basic Auth support for scripts and old bookmarks.
         auth=self.headers.get("Authorization","")
-        if not auth.startswith("Basic "): return False
-        try:
-            raw=base64.b64decode(auth.split(" ",1)[1]).decode("utf-8")
-            user,pwd=raw.split(":",1)
-            return user==ADMIN_USER and pwd==ADMIN_PASS
-        except Exception:
-            return False
+        if auth.startswith("Basic "):
+            try:
+                raw=base64.b64decode(auth.split(" ",1)[1]).decode("utf-8")
+                user,pwd=raw.split(":",1)
+                return secrets.compare_digest(user,ADMIN_USER) and secrets.compare_digest(pwd,ADMIN_PASS)
+            except Exception:
+                pass
+        return False
 
     def require_admin(self):
-        if self.admin_ok(): return True
-        self.send_response(401)
-        self.send_header("WWW-Authenticate",'Basic realm="AI-SHOP Admin"')
+        if self.admin_ok():
+            return True
+        next_path=urllib.parse.quote(self.path,safe="/?=&")
+        self.send_response(303)
+        self.send_header("Location",f"/admin/login?next={next_path}")
+        self.send_header("Cache-Control","no-store")
         self.end_headers()
         return False
+
+    def login_page(self, error="", next_path="/admin"):
+        error_box=(
+          f'<div class="error">⚠️ {html.escape(error)}</div>'
+          if error else ""
+        )
+        safe_next=html.escape(next_path or "/admin",quote=True)
+        page=f"""<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#07111f">
+<title>ورود به پنل ai-shop</title>
+<style>
+:root{{--bg:#050b15;--panel:rgba(14,27,46,.82);--line:rgba(126,169,222,.22);--text:#eff7ff;--muted:#9db0c8;--accent:#56a8ff;--accent2:#7b61ff;--danger:#ff7890}}
+*{{box-sizing:border-box}}
+body{{margin:0;min-height:100vh;display:grid;place-items:center;padding:22px;color:var(--text);font-family:Vazirmatn,Tahoma,Arial,sans-serif;background:
+radial-gradient(circle at 15% 15%,rgba(50,124,205,.32),transparent 35%),
+radial-gradient(circle at 85% 85%,rgba(123,97,255,.24),transparent 36%),
+linear-gradient(145deg,#040912,#0a1728 55%,#07111f)}}
+.login-shell{{width:min(980px,100%);display:grid;grid-template-columns:1.05fr .95fr;overflow:hidden;border:1px solid var(--line);border-radius:30px;background:rgba(5,13,24,.72);box-shadow:0 35px 100px rgba(0,0,0,.48);backdrop-filter:blur(22px)}}
+.hero{{padding:54px;display:flex;flex-direction:column;justify-content:center;background:linear-gradient(145deg,rgba(39,110,190,.2),rgba(123,97,255,.09));border-left:1px solid var(--line)}}
+.logo{{width:72px;height:72px;display:grid;place-items:center;border-radius:24px;background:linear-gradient(135deg,var(--accent),var(--accent2));font-weight:900;font-size:30px;box-shadow:0 18px 45px rgba(86,168,255,.28)}}
+.hero h1{{font-size:42px;margin:24px 0 10px;letter-spacing:-1px}}.hero p{{color:var(--muted);line-height:2;margin:0}}
+.tags{{display:flex;flex-wrap:wrap;gap:9px;margin-top:28px}}.tag{{font-size:12px;padding:7px 11px;border-radius:99px;background:rgba(86,168,255,.1);border:1px solid rgba(86,168,255,.2);color:#badeff}}
+.form-side{{padding:54px;background:var(--panel)}}.form-side h2{{font-size:27px;margin:0 0 8px}}.hint{{color:var(--muted);font-size:14px;margin-bottom:28px}}
+label{{display:block;font-size:13px;color:#c9d8ea;margin:14px 0 8px}}.field{{position:relative}}input{{width:100%;border:1px solid var(--line);background:rgba(3,10,20,.66);color:white;padding:14px 15px;border-radius:14px;font:inherit;outline:none;transition:.2s}}
+input:focus{{border-color:var(--accent);box-shadow:0 0 0 4px rgba(86,168,255,.1)}}button{{width:100%;margin-top:22px;border:0;border-radius:14px;padding:14px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:white;font:inherit;font-weight:800;cursor:pointer;box-shadow:0 16px 35px rgba(86,168,255,.22)}}button:hover{{filter:brightness(1.07);transform:translateY(-1px)}}
+.error{{background:rgba(255,120,144,.1);border:1px solid rgba(255,120,144,.32);color:#ffacbb;padding:11px 13px;border-radius:12px;margin-bottom:18px;font-size:13px}}.foot{{margin-top:22px;color:var(--muted);font-size:12px;line-height:1.8}}.version{{margin-top:auto;padding-top:35px;color:#72869f;font-size:12px}}
+@media(max-width:780px){{.login-shell{{grid-template-columns:1fr}}.hero{{padding:32px;border-left:0;border-bottom:1px solid var(--line)}}.hero h1{{font-size:31px}}.form-side{{padding:32px}}}}
+</style>
+</head>
+<body>
+<div class="login-shell">
+  <section class="hero">
+    <div class="logo">AI</div>
+    <h1>ai-shop</h1>
+    <p>پنل حرفه‌ای مدیریت فروشگاه تلگرام؛ مدیریت سفارش‌ها، محصولات، رسیدها، کاربران و تحویل سرویس.</p>
+    <div class="tags"><span class="tag">مدیریت امن</span><span class="tag">PostgreSQL</span><span class="tag">پرداخت و رسید</span></div>
+    <div class="version">Professional Edition · v{APP_VERSION}</div>
+  </section>
+  <section class="form-side">
+    <h2>ورود مدیر</h2>
+    <div class="hint">نام کاربری و رمز پنل را وارد کنید.</div>
+    {error_box}
+    <form method="post" action="/admin/login" autocomplete="on">
+      <input type="hidden" name="next" value="{safe_next}">
+      <label for="username">نام کاربری</label>
+      <input id="username" name="username" autocomplete="username" required autofocus>
+      <label for="password">رمز عبور</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <button type="submit">ورود به پنل مدیریت</button>
+    </form>
+    <div class="foot">برای دریافت رمز، در ربات روی «🔐 رمز پنل وب» بزنید یا دستور <b>/panelpass</b> را ارسال کنید.</div>
+  </section>
+</div>
+</body>
+</html>"""
+        return self.send_text(200,page,"text/html; charset=utf-8")
 
     def do_GET(self):
         parsed=urllib.parse.urlparse(self.path)
@@ -1166,6 +1254,18 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_text(200,json.dumps({"name":"ai-shop","version":APP_VERSION}),"application/json")
         if parsed.path=="/payment/callback":
             return self.payment_callback(parsed)
+        if parsed.path=="/admin/login":
+            if self.admin_ok():
+                self.send_response(303); self.send_header("Location","/admin"); self.end_headers(); return
+            q=urllib.parse.parse_qs(parsed.query)
+            return self.login_page(next_path=q.get("next",["/admin"])[0])
+        if parsed.path=="/admin/logout":
+            self.send_response(303)
+            self.send_header("Set-Cookie","ai_shop_admin=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax")
+            self.send_header("Location","/admin/login")
+            self.send_header("Cache-Control","no-store")
+            self.end_headers()
+            return
         if parsed.path=="/admin":
             if not self.require_admin(): return
             return self.admin_page()
@@ -1193,6 +1293,24 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parsed=urllib.parse.urlparse(self.path)
+        if parsed.path=="/admin/login":
+            form=urllib.parse.parse_qs(self.read_body().decode("utf-8"))
+            username=form.get("username",[""])[0]
+            password=form.get("password",[""])[0]
+            next_path=form.get("next",["/admin"])[0]
+            if not next_path.startswith("/admin"):
+                next_path="/admin"
+            if secrets.compare_digest(username,ADMIN_USER) and secrets.compare_digest(password,ADMIN_PASS):
+                self.send_response(303)
+                cookie=f"ai_shop_admin={ADMIN_SESSION_TOKEN}; Path=/; HttpOnly; SameSite=Lax; Max-Age=43200"
+                if PUBLIC_URL.startswith("https://"):
+                    cookie += "; Secure"
+                self.send_header("Set-Cookie",cookie)
+                self.send_header("Location",next_path)
+                self.send_header("Cache-Control","no-store")
+                self.end_headers()
+                return
+            return self.login_page("نام کاربری یا رمز عبور اشتباه است.",next_path)
         if parsed.path=="/telegram/webhook":
             if self.headers.get("X-Telegram-Bot-Api-Secret-Token") != WEBHOOK_SECRET:
                 return self.send_text(403,"forbidden")

@@ -1,4 +1,4 @@
-# 🛍️ ai-shop Professional Edition v3.1.0
+# 🛍️ ai-shop Professional Edition v3.2.0
 
 <p align="center">
   <strong>Telegram AI Commerce Platform</strong><br>
@@ -7,7 +7,7 @@
 
 ---
 
-## ✨ تغییرات نسخه 3.1.0
+## ✨ تغییرات نسخه 3.2.0
 
 - نصب‌کننده فارسی با چیدمان تمیزتر و خروجی مرحله‌ای
 - نوار پیشرفت نصب
@@ -104,7 +104,7 @@ echo
 خروجی:
 
 ```json
-{"name":"ai-shop","version":"3.1.0"}
+{"name":"ai-shop","version":"3.2.0"}
 ```
 
 ---
@@ -178,7 +178,7 @@ sudo bash uninstall.sh
 ---
 
 <p align="center">
-  <strong>ai-shop Professional Edition v3.1.0</strong>
+  <strong>ai-shop Professional Edition v3.2.0</strong>
 </p>
 
 
@@ -231,3 +231,36 @@ sudo bash reset-panel-password.sh
 ```
 
 اسکریپت یک رمز تصادفی جدید می‌سازد، فایل `/opt/ai-shop/.env` را اصلاح و سرویس را ریستارت می‌کند.
+
+
+---
+
+# 🔐 صفحه ورود حرفه‌ای و کپی رمز
+
+نسخه 3.2.0 پنجره ساده Basic Auth مرورگر را با یک صفحه ورود فارسی و واکنش‌گرا جایگزین می‌کند:
+
+```text
+https://YOUR-DOMAIN/admin/login
+```
+
+پس از ورود، یک Cookie امن و HttpOnly با اعتبار ۱۲ ساعت ایجاد می‌شود. برای خروج:
+
+```text
+https://YOUR-DOMAIN/admin/logout
+```
+
+## کپی رمز پنل در ربات
+
+در منوی مدیریت روی گزینه زیر بزنید:
+
+```text
+🔐 رمز پنل وب
+```
+
+یا ارسال کنید:
+
+```text
+/panelpass
+```
+
+رمز در یک پیام جداگانه با قالب `code` فرستاده می‌شود. روی رمز لمس طولانی کنید و گزینه Copy را انتخاب کنید. قابلیت `protect_content` حذف شده تا کپی رمز ممکن باشد.
