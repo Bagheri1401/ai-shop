@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-VERSION="3.4.0"
+VERSION="3.4.1"
 
 
 C_RESET="\033[0m"

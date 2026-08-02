@@ -43,7 +43,7 @@ ADMIN_ID=os.getenv("ADMIN_TELEGRAM_ID","")
 ADMIN_USER=os.getenv("ADMIN_USERNAME","admin")
 ADMIN_PASS=os.getenv("ADMIN_PASSWORD","change-me")
 CURRENCY=os.getenv("CURRENCY","IRR")
-APP_VERSION="3.4.0"
+APP_VERSION="3.4.1"
 ADMIN_SESSION_TOKEN=secrets.token_urlsafe(36)
 
 ADMIN_OTP_TTL_SECONDS=300
@@ -1241,7 +1241,7 @@ def handle_message(msg):
         return tg_safe("sendMessage",{"chat_id":chat_id,"text":"رسید در دیتابیس ثبت شد و در انتظار بررسی است."})
 
 class Handler(BaseHTTPRequestHandler):
-    server_version="ai-shop/3.4.0"
+    server_version="ai-shop/3.4.1"
 
     def log_message(self, fmt, *args):
         print(f"{self.address_string()} - {fmt%args}")
@@ -1377,7 +1377,11 @@ button:hover{{background:var(--brand-dark)}}
             return
         if parsed.path=="/admin":
             if not self.require_admin(): return
-            return self.admin_page()
+            try:
+                return self.admin_page()
+            except Exception as exc:
+                print("admin page error",repr(exc))
+                return self.admin_error_page(exc)
         if parsed.path=="/admin/help":
             if not self.require_admin(): return
             return self.help_page()
@@ -1604,6 +1608,12 @@ section{{margin:18px 0}}.btn{{display:inline-block;background:#56a8ff;color:#041
 <div class='cards'>{''.join(cards)}</div>{''.join(sections)}</html>"""
         self.send_text(200,page,"text/html; charset=utf-8")
 
+    def admin_error_page(self, exc):
+        request_id=secrets.token_hex(5)
+        print(f"admin error id={request_id}",repr(exc))
+        page=f"""<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>خطای پنل</title><style>body{{margin:0;min-height:100vh;display:grid;place-items:center;background:#f4f5f7;font-family:Tahoma,Arial;color:#1f2937;padding:20px}}.box{{width:min(460px,100%);background:white;border:1px solid #e5e7eb;border-radius:18px;padding:30px;box-shadow:0 12px 35px #00000010}}h1{{font-size:22px;margin-top:0}}p{{color:#667085;line-height:1.9}}code{{display:block;direction:ltr;background:#f2f4f7;padding:10px;border-radius:9px;margin:15px 0}}a{{display:inline-block;text-decoration:none;background:#2563eb;color:white;padding:10px 15px;border-radius:10px}}</style><div class="box"><h1>پنل موقتاً بارگذاری نشد</h1><p>خطا ثبت شد و سرویس همچنان فعال است. صفحه را دوباره باز کنید. اگر خطا تکرار شد، شناسه زیر را در لاگ جستجو کنید.</p><code>{request_id}</code><a href="/admin">تلاش دوباره</a></div></html>"""
+        return self.send_text(500,page,"text/html; charset=utf-8")
+
     def admin_page(self):
         conn=db()
         cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -1616,6 +1626,10 @@ section{{margin:18px 0}}.btn{{display:inline-block;background:#56a8ff;color:#041
                        ORDER BY o.id DESC LIMIT 100"""); orders=cur.fetchall()
         cur.execute("SELECT * FROM tickets ORDER BY id DESC LIMIT 100"); tickets=cur.fetchall()
         cur.execute("SELECT * FROM discount_codes ORDER BY id DESC LIMIT 50"); coupons=cur.fetchall()
+        cur.execute("""SELECT i.*,p.title FROM service_inventory i
+                       LEFT JOIN products p ON p.id=i.product_id
+                       ORDER BY i.id DESC LIMIT 100"""); inventory=cur.fetchall()
+        cur.execute("SELECT key,value FROM app_settings"); settings={r["key"]:r["value"] for r in cur.fetchall()}
         cur.close(); conn.close()
 
         esc=lambda x: html.escape(str(x if x is not None else ""))
