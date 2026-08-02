@@ -40,7 +40,7 @@ ADMIN_ID=os.getenv("ADMIN_TELEGRAM_ID","")
 ADMIN_USER=os.getenv("ADMIN_USERNAME","admin")
 ADMIN_PASS=os.getenv("ADMIN_PASSWORD","change-me")
 CURRENCY=os.getenv("CURRENCY","IRR")
-APP_VERSION="3.0.0"
+APP_VERSION="3.1.0"
 
 def db():
     return psycopg2.connect(
@@ -352,9 +352,10 @@ def admin_keyboard():
         {"text":"🩺 سلامت سیستم","callback_data":"adm:health"}
       ],
       [
-        {"text":"📚 راهنما","url":f"{PUBLIC_URL}/admin/help"},
-        {"text":"❌ بستن","callback_data":"adm:close"}
+        {"text":"🔐 رمز پنل وب","callback_data":"adm:panel_password"},
+        {"text":"📚 راهنما","url":f"{PUBLIC_URL}/admin/help"}
       ],
+      [{"text":"❌ بستن","callback_data":"adm:close"}],
       [{"text":"🏠 منوی اصلی","callback_data":"home"}]
     ]}
 
@@ -363,6 +364,74 @@ def admin_back_keyboard():
       [{"text":"⬅️ بازگشت به پنل مدیریت","callback_data":"adm:menu"}],
       [{"text":"🏠 منوی اصلی","callback_data":"home"}]
     ]}
+
+def admin_bottom_keyboard():
+    return {
+      "keyboard":[
+        [
+          {"text":"👥 بخش ادمین‌ها"},
+          {"text":"👨‍💼 مدیریت کاربران"}
+        ],
+        [{"text":"♻️ پیام همگانی"}],
+        [
+          {"text":"🎁 بخش تخفیفات"},
+          {"text":"🚦 بخش راهنماها"}
+        ],
+        [
+          {"text":"🔒 بخش جوین اجباری"},
+          {"text":"💳 بخش درگاه‌ها"}
+        ],
+        [
+          {"text":"🔐 رمز پنل وب"},
+          {"text":"🖥 پنل مدیریت وب"}
+        ],
+        [{"text":"⬅️ بازگشت"}]
+      ],
+      "resize_keyboard":True,
+      "one_time_keyboard":False,
+      "is_persistent":True,
+      "input_field_placeholder":"یک بخش مدیریتی را انتخاب کنید"
+    }
+
+def remove_bottom_keyboard():
+    return {"remove_keyboard":True}
+
+def send_panel_credentials(chat_id):
+    text=(
+      "🔐 اطلاعات ورود پنل مدیریت\n\n"
+      f"🌐 آدرس: {PUBLIC_URL}/admin\n"
+      f"👤 نام کاربری: {ADMIN_USER}\n"
+      f"🔑 رمز عبور: {ADMIN_PASS}\n\n"
+      "⚠️ این پیام محرمانه است و فقط برای مدیر ربات نمایش داده شده."
+    )
+    return tg("sendMessage",{
+      "chat_id":chat_id,
+      "text":text,
+      "protect_content":True,
+      "reply_markup":admin_bottom_keyboard()
+    })
+
+def admin_users_text():
+    rows=admin_text_list("""SELECT telegram_id,username,full_name,wallet_balance
+      FROM users ORDER BY created_at DESC LIMIT 20""")
+    if not rows:
+        return "👨‍💼 هنوز کاربری ثبت نشده است."
+    body="\n".join(
+      f"• {r['telegram_id']} | @{r['username'] or '-'} | {r['full_name'] or '-'} | {money(r['wallet_balance'] or 0)}"
+      for r in rows
+    )
+    return "👨‍💼 آخرین کاربران\n\n"+body
+
+def admin_discounts_text():
+    rows=admin_text_list("""SELECT code,percent,amount,active,used_count
+      FROM discount_codes ORDER BY id DESC LIMIT 20""")
+    if not rows:
+        return "🎁 هنوز کد تخفیفی ساخته نشده است."
+    body="\n".join(
+      f"• {r['code']} | {r['percent']}٪ | {money(r['amount'] or 0)} | مصرف {r['used_count']} | {'فعال' if r['active'] else 'غیرفعال'}"
+      for r in rows
+    )
+    return "🎁 کدهای تخفیف\n\n"+body
 
 def server_status_text():
     try:
@@ -402,7 +471,11 @@ def send_main(chat_id, uid=None):
     tg("sendMessage", {"chat_id":chat_id,"text":"✨ به AI-SHOP خوش آمدید.\nفروشگاه محصولات و خدمات هوش مصنوعی","reply_markup":main_keyboard(is_admin)})
 
 def send_admin_menu(chat_id):
-    tg("sendMessage",{"chat_id":chat_id,"text":"🛡 پنل مدیریت AI-SHOP\nبخش موردنظر را انتخاب کنید:","reply_markup":admin_keyboard()})
+    tg("sendMessage",{
+      "chat_id":chat_id,
+      "text":"🛡 پنل مدیریت ai-shop\n\nمنوی مدیریتی در پایین صفحه باز شد. بخش موردنظر را انتخاب کنید.",
+      "reply_markup":admin_bottom_keyboard()
+    })
 
 def upsert_user(frm):
     if not frm or not frm.get("id"): return
@@ -516,11 +589,19 @@ def handle_admin_menu(q):
 
     if data=="adm:menu": return send_admin_menu(chat_id)
     if data=="adm:close":
+        tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":"پنل مدیریت بسته شد.",
+          "reply_markup":remove_bottom_keyboard()
+        })
         return tg("editMessageText",{
           "chat_id":chat_id,
           "message_id":q["message"]["message_id"],
           "text":"پنل مدیریت بسته شد."
         })
+
+    if data=="adm:panel_password":
+        return send_panel_credentials(chat_id)
 
     if data in ("adm:stats","adm:reports"):
         conn=db(); cur=conn.cursor()
@@ -870,9 +951,117 @@ def download_telegram_file(file_id):
 def handle_message(msg):
     upsert_user(msg.get("from"))
     chat_id=msg["chat"]["id"]; uid=msg["from"]["id"]; text=msg.get("text","")
-    if text in ("/start","/menu"): return send_main(chat_id,uid)
-    if text=="/admin" and admin_allowed(uid): return send_admin_menu(chat_id)
-    if text=="/cancel": STATE.pop(uid,None); return send_main(chat_id,uid)
+
+    if text in ("/start","/menu"):
+        tg("sendMessage",{"chat_id":chat_id,"text":"منوی اصلی","reply_markup":remove_bottom_keyboard()})
+        return send_main(chat_id,uid)
+
+    if text in ("/admin","⚙️ مدیریت ai-shop") and admin_allowed(uid):
+        return send_admin_menu(chat_id)
+
+    if text=="/panelpass" and admin_allowed(uid):
+        return send_panel_credentials(chat_id)
+
+    if admin_allowed(uid):
+        if text=="🔐 رمز پنل وب":
+            return send_panel_credentials(chat_id)
+
+        if text=="🖥 پنل مدیریت وب":
+            return tg("sendMessage",{
+              "chat_id":chat_id,
+              "text":"🖥 ورود به پنل مدیریت وب:",
+              "reply_markup":{"inline_keyboard":[[
+                {"text":"ورود به پنل مدیریت","url":f"{PUBLIC_URL}/admin"}
+              ]]}
+            })
+
+        if text=="👥 بخش ادمین‌ها":
+            return tg("sendMessage",{
+              "chat_id":chat_id,
+              "text":(
+                "👥 بخش ادمین‌ها\n\n"
+                f"مدیر اصلی: {ADMIN_ID}\n"
+                "سطح دسترسی: مدیر کل\n"
+                "ورود مدیران دیگر در نسخه فعلی از پنل وب مدیریت می‌شود."
+              ),
+              "reply_markup":admin_bottom_keyboard()
+            })
+
+        if text=="👨‍💼 مدیریت کاربران":
+            return tg("sendMessage",{
+              "chat_id":chat_id,
+              "text":admin_users_text(),
+              "reply_markup":admin_bottom_keyboard()
+            })
+
+        if text=="♻️ پیام همگانی":
+            STATE[uid]={"step":"admin_broadcast"}
+            return tg("sendMessage",{
+              "chat_id":chat_id,
+              "text":"♻️ متن پیام همگانی را ارسال کنید.\nبرای لغو /cancel را بفرستید.",
+              "reply_markup":admin_bottom_keyboard()
+            })
+
+        if text=="🎁 بخش تخفیفات":
+            return tg("sendMessage",{
+              "chat_id":chat_id,
+              "text":admin_discounts_text(),
+              "reply_markup":{"inline_keyboard":[
+                [{"text":"مدیریت تخفیف‌ها در وب","url":f"{PUBLIC_URL}/admin#coupons"}]
+              ]}
+            })
+
+        if text=="🚦 بخش راهنماها":
+            return tg("sendMessage",{
+              "chat_id":chat_id,
+              "text":"🚦 راهنمای کامل نصب، آپدیت و مدیریت:",
+              "reply_markup":{"inline_keyboard":[[
+                {"text":"بازکردن راهنما","url":f"{PUBLIC_URL}/admin/help"}
+              ]]}
+            })
+
+        if text=="💳 بخش درگاه‌ها":
+            mode="آزمایشی" if os.getenv("ZARINPAL_SANDBOX","true").lower()=="true" else "واقعی"
+            merchant="تنظیم شده" if os.getenv("ZARINPAL_MERCHANT_ID","") else "تنظیم نشده"
+            card="تنظیم شده" if os.getenv("CARD_NUMBER","") else "تنظیم نشده"
+            return tg("sendMessage",{
+              "chat_id":chat_id,
+              "text":(
+                "💳 وضعیت درگاه‌ها\n\n"
+                f"زرین‌پال: {merchant}\n"
+                f"حالت زرین‌پال: {mode}\n"
+                f"کارت‌به‌کارت: {card}\n"
+                "کیف پول: فعال"
+              ),
+              "reply_markup":admin_bottom_keyboard()
+            })
+
+        if text=="🔒 بخش جوین اجباری":
+            return tg("sendMessage",{
+              "chat_id":chat_id,
+              "text":(
+                "🔒 جوین اجباری\n\n"
+                "برای تنظیم کانال و فعال‌سازی این بخش، از تنظیمات پنل وب استفاده کنید."
+              ),
+              "reply_markup":{"inline_keyboard":[[
+                {"text":"بازکردن تنظیمات","url":f"{PUBLIC_URL}/admin#settings"}
+              ]]}
+            })
+
+        if text=="⬅️ بازگشت":
+            tg("sendMessage",{
+              "chat_id":chat_id,
+              "text":"به منوی اصلی برگشتید.",
+              "reply_markup":remove_bottom_keyboard()
+            })
+            return send_main(chat_id,uid)
+
+    if text=="/cancel":
+        STATE.pop(uid,None)
+        if admin_allowed(uid):
+            return send_admin_menu(chat_id)
+        return send_main(chat_id,uid)
+
     s=STATE.get(uid)
     if not s: return send_main(chat_id,uid)
     if s["step"]=="ticket_subject" and text:
@@ -912,7 +1101,11 @@ def handle_message(msg):
         for r in rows:
             try: tg("sendMessage",{"chat_id":r['telegram_id'],"text":text}); ok+=1
             except Exception: fail+=1
-        STATE.pop(uid,None); return tg("sendMessage",{"chat_id":chat_id,"text":f"📣 ارسال تمام شد. موفق: {ok} | ناموفق: {fail}"})
+        STATE.pop(uid,None); return tg("sendMessage",{
+          "chat_id":chat_id,
+          "text":f"📣 ارسال تمام شد. موفق: {ok} | ناموفق: {fail}",
+          "reply_markup":admin_bottom_keyboard()
+        })
     if s["step"]=="card_receipt" and msg.get("photo"):
         file_id=msg["photo"][-1]["file_id"]
         receipt_data=None; receipt_mime=None
@@ -928,7 +1121,7 @@ def handle_message(msg):
         return tg_safe("sendMessage",{"chat_id":chat_id,"text":"رسید در دیتابیس ثبت شد و در انتظار بررسی است."})
 
 class Handler(BaseHTTPRequestHandler):
-    server_version="ai-shop/3.0.0"
+    server_version="ai-shop/3.1.0"
 
     def log_message(self, fmt, *args):
         print(f"{self.address_string()} - {fmt%args}")
