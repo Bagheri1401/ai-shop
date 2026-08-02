@@ -1,4 +1,4 @@
-# 🛍️ ai-shop Professional Edition v3.2.0
+# 🛍️ ai-shop Professional Edition v3.3.0
 
 <p align="center">
   <strong>Telegram AI Commerce Platform</strong><br>
@@ -7,7 +7,7 @@
 
 ---
 
-## ✨ تغییرات نسخه 3.2.0
+## ✨ تغییرات نسخه 3.3.0
 
 - نصب‌کننده فارسی با چیدمان تمیزتر و خروجی مرحله‌ای
 - نوار پیشرفت نصب
@@ -104,7 +104,7 @@ echo
 خروجی:
 
 ```json
-{"name":"ai-shop","version":"3.2.0"}
+{"name":"ai-shop","version":"3.3.0"}
 ```
 
 ---
@@ -178,7 +178,7 @@ sudo bash uninstall.sh
 ---
 
 <p align="center">
-  <strong>ai-shop Professional Edition v3.2.0</strong>
+  <strong>ai-shop Professional Edition v3.3.0</strong>
 </p>
 
 
@@ -237,7 +237,7 @@ sudo bash reset-panel-password.sh
 
 # 🔐 صفحه ورود حرفه‌ای و کپی رمز
 
-نسخه 3.2.0 پنجره ساده Basic Auth مرورگر را با یک صفحه ورود فارسی و واکنش‌گرا جایگزین می‌کند:
+نسخه 3.3.0 پنجره ساده Basic Auth مرورگر را با یک صفحه ورود فارسی و واکنش‌گرا جایگزین می‌کند:
 
 ```text
 https://YOUR-DOMAIN/admin/login
@@ -264,3 +264,56 @@ https://YOUR-DOMAIN/admin/logout
 ```
 
 رمز در یک پیام جداگانه با قالب `code` فرستاده می‌شود. روی رمز لمس طولانی کنید و گزینه Copy را انتخاب کنید. قابلیت `protect_content` حذف شده تا کپی رمز ممکن باشد.
+
+
+---
+
+# 🔐 رمز یک‌بارمصرف پنل
+
+در نسخه 3.3.0 رمز ثابت پنل از طریق ربات نمایش داده نمی‌شود. هر بار مدیر روی گزینه زیر بزند:
+
+```text
+🔐 رمز پنل وب
+```
+
+یا دستور زیر را ارسال کند:
+
+```text
+/panelpass
+```
+
+یک رمز جدید با ویژگی‌های زیر ساخته می‌شود:
+
+- فقط برای یک ورود معتبر است.
+- پنج دقیقه اعتبار دارد.
+- بعد از اولین ورود فوراً باطل می‌شود.
+- درخواست رمز تازه، رمز قبلی را باطل می‌کند.
+- رمز در پیام جداگانه و قابل کپی ارسال می‌شود.
+
+> رمز یک‌بارمصرف در حافظه برنامه نگهداری می‌شود و بعد از ریستارت سرویس نیز خودکار باطل است.
+
+# 🌐 رفع خطای SSL و 502
+
+نسخه 3.3.0 این موارد را اضافه می‌کند:
+
+- انتظار تا ۶۰ ثانیه برای آماده‌شدن برنامه قبل از Reload کردن Nginx
+- ثبت وضعیت سرویس و ۱۲۰ خط آخر لاگ هنگام شکست
+- تنظیم Timeout و Retry در Nginx
+- صفحه فارسی موقت به‌جای صفحه خام 502
+- Restart policy پایدارتر برای systemd
+- بررسی HTTPS در `health-check.sh`
+
+برای تعمیر نصب فعلی:
+
+```bash
+cd ~/ai-shop
+sudo bash repair.sh
+```
+
+سپس بررسی کنید:
+
+```bash
+sudo bash health-check.sh
+systemctl status ai-shop --no-pager
+journalctl -u ai-shop -n 100 --no-pager
+```

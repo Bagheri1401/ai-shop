@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-VERSION="3.2.0"
+VERSION="3.3.0"
 
 
 
@@ -209,8 +209,25 @@ sed "s/__DOMAIN__/${DOMAIN}/g" "$TMP_DIR/source/nginx/ai-shop.conf" > /etc/nginx
 ln -sf /etc/nginx/sites-available/ai-shop /etc/nginx/sites-enabled/ai-shop
 nginx -t
 systemctl daemon-reload
-systemctl reload nginx
 systemctl restart ai-shop
+
+APP_READY=0
+for _ in $(seq 1 60); do
+  if curl -fsS http://127.0.0.1:3000/health >/dev/null 2>&1; then
+    APP_READY=1
+    break
+  fi
+  sleep 1
+done
+if [ "$APP_READY" -ne 1 ]; then
+  fail "برنامه بعد از ۶۰ ثانیه آماده نشد."
+  systemctl status ai-shop --no-pager || true
+  journalctl -u ai-shop -n 120 --no-pager || true
+  false
+fi
+
+nginx -t
+systemctl reload nginx
 ok "نسخه جدید اجرا شد."
 
 step 5 5 "بررسی سلامت و نسخه فعال"

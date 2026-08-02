@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -u
-VERSION="3.2.0"
+VERSION="3.3.0"
 
 
 
@@ -127,3 +127,8 @@ echo
 line
 printf "نتیجه: ${C_BOLD}%s از %s بررسی موفق${C_RESET}\n" "$PASSED" "$CHECKS"
 [ "$PASSED" -eq "$CHECKS" ]
+
+if [ -f /opt/ai-shop/.env ]; then
+  DOMAIN="$(grep '^DOMAIN=' /opt/ai-shop/.env | cut -d= -f2-)"
+  check "پاسخ HTTPS دامنه بدون خطای 502" "curl -kfsS --max-time 15 https://${DOMAIN}/health"
+fi
